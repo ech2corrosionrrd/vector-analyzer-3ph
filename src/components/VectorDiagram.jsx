@@ -1,6 +1,14 @@
 import { useMemo } from 'react';
 import { polarToCartesian } from '../utils/calculations';
 
+function ArrowMarker({ id, fill, mw, mh, refX, refY }) {
+  return (
+    <marker id={id} markerWidth={mw} markerHeight={mh} refX={refX} refY={refY} orient="auto">
+      <polygon points={`0 0, ${mw} ${refY}, 0 ${mh}`} fill={fill} />
+    </marker>
+  );
+}
+
 /** Внутрішній розмір viewBox (чим більше — тим чіткіше при масштабі на весь екран). */
 const VectorDiagram = ({ vectors, size = 960 }) => {
   const k = size / 500;
@@ -72,12 +80,6 @@ const VectorDiagram = ({ vectors, size = 960 }) => {
     ));
   };
 
-  const Arrow = ({ id, fill }) => (
-    <marker id={id} markerWidth={mw} markerHeight={mh} refX={refX} refY={refY} orient="auto">
-      <polygon points={`0 0, ${mw} ${refY}, 0 ${mh}`} fill={fill} />
-    </marker>
-  );
-
   return (
     <div className="vector-diagram-container bg-slate-900 p-4 sm:p-6 rounded-2xl shadow-2xl overflow-hidden w-full min-w-0 flex items-center justify-center">
       <svg
@@ -87,15 +89,15 @@ const VectorDiagram = ({ vectors, size = 960 }) => {
         aria-label="Векторна діаграма"
       >
         <defs>
-          <Arrow id="arrowhead-A" fill="#facc15" />
-          <Arrow id="arrowhead-B" fill="#22c55e" />
-          <Arrow id="arrowhead-C" fill="#ef4444" />
-          <Arrow id="arrowhead-P" fill="#3b82f6" />
-          <Arrow id="arrowhead-Q" fill="#f97316" />
-          <Arrow id="arrowhead-S" fill="#a855f7" />
-          <Arrow id="arrowhead-s0" fill="#94a3b8" />
-          <Arrow id="arrowhead-s1" fill="#38bdf8" />
-          <Arrow id="arrowhead-s2" fill="#e879f9" />
+          <ArrowMarker id="arrowhead-A" fill="#facc15" mw={mw} mh={mh} refX={refX} refY={refY} />
+          <ArrowMarker id="arrowhead-B" fill="#22c55e" mw={mw} mh={mh} refX={refX} refY={refY} />
+          <ArrowMarker id="arrowhead-C" fill="#ef4444" mw={mw} mh={mh} refX={refX} refY={refY} />
+          <ArrowMarker id="arrowhead-P" fill="#3b82f6" mw={mw} mh={mh} refX={refX} refY={refY} />
+          <ArrowMarker id="arrowhead-Q" fill="#f97316" mw={mw} mh={mh} refX={refX} refY={refY} />
+          <ArrowMarker id="arrowhead-S" fill="#a855f7" mw={mw} mh={mh} refX={refX} refY={refY} />
+          <ArrowMarker id="arrowhead-s0" fill="#94a3b8" mw={mw} mh={mh} refX={refX} refY={refY} />
+          <ArrowMarker id="arrowhead-s1" fill="#38bdf8" mw={mw} mh={mh} refX={refX} refY={refY} />
+          <ArrowMarker id="arrowhead-s2" fill="#e879f9" mw={mw} mh={mh} refX={refX} refY={refY} />
         </defs>
 
         {renderCircles()}

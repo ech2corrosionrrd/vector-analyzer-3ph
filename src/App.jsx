@@ -307,6 +307,11 @@ const App = () => {
     );
 
     const element = document.getElementById('pdf-report-export');
+    if (!element) {
+      alert('Макет звіту тимчасово недоступний. Спробуйте ще раз.');
+      flushSync(() => setPdfCaptureOpen(false));
+      return;
+    }
 
     try {
       const w = element.offsetWidth;

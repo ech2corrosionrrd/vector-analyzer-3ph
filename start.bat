@@ -49,8 +49,8 @@ if not exist "node_modules\" set "NEED_INSTALL=1"
 if not exist "node_modules\vite\" set "NEED_INSTALL=1"
 
 if "%NEED_INSTALL%"=="1" (
-  echo Running npm install --legacy-peer-deps ...
-  call "%NPM_CMD%" install --legacy-peer-deps
+  echo Running npm install ...
+  call "%NPM_CMD%" install
   if errorlevel 1 (
     echo npm install failed.
     popd
