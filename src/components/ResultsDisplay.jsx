@@ -1,4 +1,3 @@
-import React from 'react';
 import { AlertCircle, CheckCircle, Zap, ShieldAlert } from 'lucide-react';
 
 const ResultsDisplay = ({ results, diagnostics }) => {
