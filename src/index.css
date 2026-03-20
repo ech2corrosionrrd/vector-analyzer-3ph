@@ -1,0 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #020617;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-content: center;
+  min-width: 320px;
+  min-height: 100vh;
+  background: radial-gradient(circle at top right, #1e1b4b, #020617 40%),
+              radial-gradient(circle at bottom left, #1e3a8a, #020617 40%);
+  background-attachment: fixed;
+}
+
+#root {
+  width: 100%;
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  background-color: rgba(15, 23, 42, 0.6); /* Slate 900 */
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Vector Animation */
+.vector-line {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.vector-line:hover {
+  filter: drop-shadow(0 0 8px currentColor);
+  stroke-width: 4;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #020617;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+/* Phase Colors Utility */
+.phase-a { color: #facc15; }
+.phase-b { color: #22c55e; }
+.phase-c { color: #ef4444; }
+
+/* SVG Optimization */
+.vector-svg {
+  filter: drop-shadow(0 10px 15px rgba(0, 0, 0, 0.5));
+}
