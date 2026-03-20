@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "VectorAnalyzer 3Ph",
   "short_name": "Vector3Ph",
   "description": "Professional Power Diagnostics tool for vector analysis",
@@ -9,6 +9,18 @@
   "theme_color": "#020617",
   "id": "vectoranalyzer-3ph-desktop",
   "icons": [
+    {
+      "src": "/vector-analyzer-3ph/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/vector-analyzer-3ph/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
     {
       "src": "/vector-analyzer-3ph/favicon.svg",
       "sizes": "any",
