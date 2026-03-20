@@ -35,13 +35,6 @@ body {
   width: 100%;
 }
 
-/* Glassmorphism Classes */
-.glass-panel {
-  background-color: rgba(15, 23, 42, 0.6); /* Slate 900 */
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
 /* Vector Animation */
 .vector-line {
   transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);

@@ -1,0 +1,19 @@
+﻿{
+  "name": "VectorAnalyzer 3Ph (Mobile)",
+  "short_name": "Vector3PhM",
+  "description": "Mobile app variant of VectorAnalyzer 3Ph",
+  "start_url": "/vector-analyzer-3ph/mobile/",
+  "scope": "/vector-analyzer-3ph/mobile/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "id": "vectoranalyzer-3ph-mobile",
+  "icons": [
+    {
+      "src": "/vector-analyzer-3ph/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

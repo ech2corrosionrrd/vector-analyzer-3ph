@@ -1,6 +1,3 @@
-import React from 'react';
-import { Info, AlertTriangle } from 'lucide-react';
-
 const InputForm = ({ measurements, setMeasurements, angleMode, setAngleMode, scheme, setScheme, voltageType, setVoltageType }) => {
   
   const handleChange = (phase, field, value) => {
@@ -57,6 +54,11 @@ const InputForm = ({ measurements, setMeasurements, angleMode, setAngleMode, sch
             <option value="delta">Трикутник (Δ)</option>
           </select>
         </div>
+        {voltageType === 'line' && (
+          <p className="w-full text-xs text-slate-500 leading-relaxed">
+            Лінійна напруга: для зірки U<sub>ф</sub> = U<sub>л</sub>/√3; для трикутника U<sub>ф</sub> = U<sub>л</sub> (розрахунок P, Q, S — по фазній).
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
