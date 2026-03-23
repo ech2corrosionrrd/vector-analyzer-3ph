@@ -83,7 +83,21 @@
 
 - Workflow: **`.github/workflows/deploy.yml`** — зазвичай запускається при **push** у гілку **`main`** або вручну (**Actions → Deploy static content to Pages → Run workflow**).
 - Кроки збірки: `npm install` → `npm run build` → публікується вміст каталогу **`dist/`**.
-- У **Settings → Pages** для репозиторію джерело публікації має бути **GitHub Actions**, а не «Deploy from a branch» (інакше замість зібраного `dist` може віддаватися сирий репозиторій).
+
+### Обов’язково: джерело публікації
+
+У репозиторії на GitHub: **Settings** → **Pages** → блок **Build and deployment** → поле **Source** має бути **GitHub Actions**.
+
+Якщо обрано **Deploy from a branch** (наприклад, `master` / `/ (root)`), на сайт потрапляє **незібраний** проєкт: у `index.html` лишається посилання на `/src/main.jsx`, а браузер **не може** підвантажити React як у Vite-розробці — отримаєте **порожній екран**, помилки в консолі (`Failed to resolve module "react"` тощо), нібито «посилання не відкриваються».
+
+**Що зробити:** перемкніть Source на **GitHub Actions**, збережіть, відкрийте **Actions**, запустіть workflow **Deploy static content to Pages** вручну (якщо потрібно), дочекайтесь зеленої галочки, через 1–2 хвилини оновіть сайт (краще з очищенням кешу або в режимі інкогніто).
+
+### Робочі посилання (приклад для цього репозиторію)
+
+- Основна сторінка: `https://ech2corrosionrrd.github.io/vector-analyzer-3ph/`
+- Мобільна точка входу (окремий PWA): `https://ech2corrosionrrd.github.io/vector-analyzer-3ph/mobile/`
+
+Якщо скопіюєте проєкт під іншим акаунтом або назвою репозиторію — змініть у **`vite.config.js`** значення **`base`** і шляхи в **`public/*.webmanifest`** відповідно до `https://<user>.github.io/<repo>/`.
 
 ---
 © 2026 VectorAnalyzer 3Ph. Розроблено для інженерів-метрологів та електромонтерів.
