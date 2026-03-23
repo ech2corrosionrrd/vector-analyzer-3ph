@@ -2,6 +2,17 @@
 
 Всі зміни та покращення внесені під час сесії оновлення проєкту.
 
+## [1.0.0] — 2026-03-24
+
+Фіксований стабільний стан для релізу та відновлення.
+
+### Змінено
+- **`package.json`**: версія **1.0.0** (узгоджено з git-тегом `v1.0.0`).
+- **GitHub Actions**: job `build` (Node 20, `npm ci`, `npm run build`) + job `deploy` (`upload-pages-artifact` → `dist`, `deploy-pages@v4`, environment `github-pages`).
+- **Залежності**: `lucide-react` ^1.0.1 (peer React 19), оновлений `package-lock.json` для успішного `npm ci` у CI.
+
+---
+
 ## [2026-03-20] — Документація та інструкції
 
 ### Змінено
