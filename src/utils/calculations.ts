@@ -164,13 +164,29 @@ export const getPhaseSequence = (angleA, angleB, angleC) => {
  */
 export const polarToCartesian = (radius, angleDeg, centerX, centerY) => {
   const angleRad = degToRad(angleDeg);
-  // SVG coordinates: y is down, so we use -sin for up if 0 deg is right
-  // But usually in electrical diagrams 0 is UP (90 deg in standard math) or 0 is RIGHT.
-  // The user specified: 0, 90, 180, 270 axes.
-  // Let's assume 0 is UP (A phase usually at 12 o'clock in many diagrams, but user said UA=0).
-  // If UA = 0 is 0 degrees (RIGHT), then:
   return {
     x: centerX + radius * Math.cos(angleRad),
     y: centerY - radius * Math.sin(angleRad)
   };
 };
+
+/**
+ * Calculate asymmetry coefficients (ГОСТ 32144-2013).
+ * K₂ = |V₂| / |V₁| — reverse sequence coefficient (допуск ≤ 2%)
+ * K₀ = |V₀| / |V₁| — zero sequence coefficient
+ * @param {{ V0: {mag,deg}, V1: {mag,deg}, V2: {mag,deg} }} sym - symmetrical components
+ * @returns {{ K2: number, K0: number, K2pct: number, K0pct: number, K2ok: boolean }}
+ */
+export const calcAsymmetryCoefficients = (sym) => {
+  const v1 = sym.V1.mag || 1e-12;
+  const K2 = sym.V2.mag / v1;
+  const K0 = sym.V0.mag / v1;
+  return {
+    K2,
+    K0,
+    K2pct: K2 * 100,
+    K0pct: K0 * 100,
+    K2ok: K2 <= 0.02, // ГОСТ 32144-2013: допуск 2%
+  };
+};
+

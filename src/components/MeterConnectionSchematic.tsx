@@ -1,4 +1,6 @@
-const PHASE_COL = { A: '#facc15', B: '#22c55e', C: '#ef4444' };
+import { PHASE_COLORS } from '../utils/constants';
+
+const PHASE_COL = PHASE_COLORS;
 
 function wireStroke(state, phase) {
   const base = PHASE_COL[phase] ?? '#94a3b8';
@@ -130,7 +132,7 @@ export function MeterConnectionSchematic({ connectionScheme, voltageLevel, wireH
         </p>
       ) : null}
 
-      <svg viewBox="0 0 620 420" className="w-full h-auto min-w-[520px] max-h-[420px]" aria-hidden>
+      <svg viewBox="0 0 620 420" className="w-full h-auto min-w-[360px] sm:min-w-[520px] max-h-[420px]" aria-hidden>
         <text x={310} y={22} textAnchor="middle" fill="#94a3b8" fontSize="11" fontWeight="600">
           {meterTitle}
         </text>

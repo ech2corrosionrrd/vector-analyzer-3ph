@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import { flushSync } from 'react-dom';
-import { Download, Info, Zap } from 'lucide-react';
-import { jsPDF } from 'jspdf';
+import { Download, Info, Zap, Loader2 } from 'lucide-react';
 
 import { captureReportElementToPngDataUrl } from './utils/captureReportPng';
 
@@ -56,7 +55,7 @@ const DIAGRAM_GROUPS = [
   },
 ];
 
-const DIAGRAM_NOTES = {
+const DIAGRAM_NOTES: Record<string, string> = {
   combined:
     'Довжини векторів I на крузі зменшені. Підписи: дійсні U, I та кути. U на діаграмі в масштабі Uф; у підписі — введене значення (Uф/Uл).',
   voltage: 'Зіркоподібна (променева) діаграма: фазні напруги Uф з умовної нейтралі — типовий вигляд симетричної зірки (класичні ~120°).',
@@ -74,19 +73,35 @@ const DIAGRAM_NOTES = {
   voltageTriangle:
     'Трикутник напруг однофазного еквівалента обраної фази: U_R = U·cos φ, U_X = U·sin φ (φ — кут між U та I), гіпотенуза — повна фазна U.',
   impedanceTriangle:
-    'Трикутник опорів: R = Z·cos φ, X = Z·sin φ, Z = Uф/I; типовий зв’язок для серійного R–X.',
+    `Трикутник опорів: R = Z·cos φ, X = Z·sin φ, Z = Uф/I; типовий зв\u2019язок для серійного R–X.`,
   ossanna:
     'Діаграма Оссана: спрощена схема кола струму статора АД. Повна побудова — за схемою заміщення та опором ротора при різних ковзаннях.',
   smith:
     'Фрагмент діаграми Сміта: нормовані опори на лініях передачі / узгодження (РЧ; для силових КЗЛН часто інші номограми).',
 };
 
-const diagramModeLabelLookup = (mode) => {
+const diagramModeLabelLookup = (mode: string) => {
   for (const g of DIAGRAM_GROUPS) {
     const m = g.modes.find((x) => x.id === mode);
     if (m) return m.label;
   }
   return mode;
+};
+
+/** Hook to detect mobile viewport */
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(() => 
+    typeof window !== 'undefined' && window.innerWidth < 768
+  );
+  
+  useState(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  });
+
+  return isMobile;
 };
 
 const App = () => {
@@ -97,6 +112,9 @@ const App = () => {
   const [diagramMode, setDiagramMode] = useState('combined');
   const [trianglePhase, setTrianglePhase] = useState('A');
   const [pdfCaptureOpen, setPdfCaptureOpen] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [frequency, setFrequency] = useState('50');
+  const [loadType, setLoadType] = useState('mixed');
   
   const [measurements, setMeasurements] = useState({
     A: { U: 220, I: 5, angleU: 0, angleI: 330, phi: 30 },
@@ -104,13 +122,15 @@ const App = () => {
     C: { U: 220, I: 5, angleU: 120, angleI: 90, phi: 30 }
   });
 
+  const isMobile = useIsMobile();
+
   // Derived results
   const results = useMemo(() => {
     try {
-      const phaseResults = {};
+      const phaseResults: Record<string, any> = {};
       let totalP = 0, totalQ = 0, totalS = 0;
 
-      ['A', 'B', 'C'].forEach(p => {
+      (['A', 'B', 'C'] as const).forEach(p => {
         let phiValue = 0;
         if (angleMode === 'relative') {
           phiValue = measurements[p].angleU - measurements[p].angleI;
@@ -145,7 +165,7 @@ const App = () => {
 
   // Diagnostics
   const diagnostics = useMemo(() => {
-    const diags = [];
+    const diags: any[] = [];
 
     // Check polarity (angle approx 180)
     ['A', 'B', 'C'].forEach(p => {
@@ -171,7 +191,7 @@ const App = () => {
     }
 
     // Check angle imbalance (B and C relative to A)
-    const norm = (a) => ((a % 360) + 360) % 360;
+    const norm = (a: number) => ((a % 360) + 360) % 360;
     const diffAB = norm(measurements.B.angleU - measurements.A.angleU);
     const diffAC = norm(measurements.C.angleU - measurements.A.angleU);
     
@@ -237,7 +257,7 @@ const App = () => {
       );
     }
     if (diagramMode === 'voltageTriangle') {
-      const p = trianglePhase;
+      const p = trianglePhase as 'A' | 'B' | 'C';
       const Uphase = toPhaseVoltage(measurements[p].U, voltageType, scheme);
       const phi = phasePhiDeg(measurements, angleMode, p);
       const rad = degToRad(phi);
@@ -261,7 +281,7 @@ const App = () => {
       );
     }
     if (diagramMode === 'impedanceTriangle') {
-      const p = trianglePhase;
+      const p = trianglePhase as 'A' | 'B' | 'C';
       const Uphase = toPhaseVoltage(measurements[p].U, voltageType, scheme);
       const I = Math.max(measurements[p].I, 1e-9);
       const Z = Uphase / I;
@@ -287,10 +307,10 @@ const App = () => {
       );
     }
     if (diagramMode === 'ossanna') {
-      return <OssannaDiagram />;
+      return <OssannaDiagram measurements={measurements} angleMode={angleMode} scheme={scheme} voltageType={voltageType} />;
     }
     if (diagramMode === 'smith') {
-      return <SmithChartDiagram />;
+      return <SmithChartDiagram measurements={measurements} angleMode={angleMode} scheme={scheme} voltageType={voltageType} />;
     }
     return <VectorDiagram vectors={vectors} size={vectorSize} />;
   };
@@ -300,6 +320,9 @@ const App = () => {
       alert('Не знайдено макету звіту. Спробуйте оновити сторінку.');
       return;
     }
+
+    if (pdfBusy) return;
+    setPdfBusy(true);
 
     flushSync(() => setPdfCaptureOpen(true));
     await new Promise((r) =>
@@ -324,6 +347,7 @@ const App = () => {
 
       const dataUrl = await captureReportElementToPngDataUrl(element);
 
+      const { jsPDF } = await import('jspdf');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
@@ -338,8 +362,6 @@ const App = () => {
         throw new Error('Некоректні розміри зображення для PDF.');
       }
 
-      // Масштабуємо так, щоб звіт гарантовано вліз в один A4 (usableW x usableH).
-      // Додаємо кліпування на випадок похибок округлення.
       const imgScale = Math.min(usableW / iw, usableH / ih);
       let imgWmm = iw * imgScale;
       let imgHmm = ih * imgScale;
@@ -371,46 +393,100 @@ const App = () => {
           : 'Не вдалося згенерувати PDF. Будь ласка, спробуйте ще раз.',
       );
     } finally {
-      flushSync(() => setPdfCaptureOpen(false));
+      flushSync(() => { setPdfCaptureOpen(false); setPdfBusy(false); });
     }
+  };
+
+  /** Mobile-friendly diagram mode selector */
+  const renderDiagramModeSelector = () => {
+    if (isMobile) {
+      return (
+        <div className="mb-4" data-export-ignore>
+          <label className="text-xs uppercase tracking-wider text-slate-500 mb-1.5 font-semibold block">
+            Тип діаграми
+          </label>
+          <select
+            value={diagramMode}
+            onChange={(e) => setDiagramMode(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-200 focus:ring-2 focus:ring-purple-500 transition-all"
+          >
+            {DIAGRAM_GROUPS.map((group) => (
+              <optgroup key={group.title} label={group.title}>
+                {group.modes.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3 mb-4" data-export-ignore>
+        {DIAGRAM_GROUPS.map((group) => (
+          <div key={group.title}>
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5 font-semibold">
+              {group.title}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {group.modes.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setDiagramMode(m.id)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                    diagramMode === m.id
+                      ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/30'
+                      : 'bg-slate-800/80 border-slate-600 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500/30">
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-screen-2xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/20">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/20 flex-shrink-0">
               <Zap className="text-white" fill="white" size={24} />
             </div>
-            <div>
-              <h1 className="text-xl font-black tracking-tight uppercase">VectorAnalyzer <span className="text-blue-500">3Ph</span></h1>
-              <p className="text-[10px] text-slate-500 font-semibold tracking-widest uppercase">Professional Power Diagnostics</p>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-black tracking-tight uppercase truncate">VectorAnalyzer <span className="text-blue-500">3Ph</span></h1>
+              <p className="text-[10px] text-slate-500 font-semibold tracking-widest uppercase hidden sm:block">Professional Power Diagnostics</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 flex-wrap justify-end">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             <div className="flex rounded-lg border border-slate-700 overflow-hidden">
               <button
                 type="button"
                 onClick={() => setAppSection('classic')}
-                className={`px-3 py-2 text-xs font-semibold transition-colors ${
+                className={`px-2 sm:px-3 py-2 text-xs font-semibold transition-colors ${
                   appSection === 'classic'
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-900 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                VectorAnalyzer
+                {isMobile ? 'VA' : 'VectorAnalyzer'}
               </button>
               <button
                 type="button"
                 onClick={() => setAppSection('vaf')}
-                className={`px-3 py-2 text-xs font-semibold transition-colors ${
+                className={`px-2 sm:px-3 py-2 text-xs font-semibold transition-colors ${
                   appSection === 'vaf'
                     ? 'bg-cyan-600 text-white'
                     : 'bg-slate-900 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                ВАФ-Аналізатор
+                {isMobile ? 'ВАФ' : 'ВАФ-Аналізатор'}
               </button>
             </div>
             {appSection === 'classic' ? (
@@ -418,25 +494,27 @@ const App = () => {
                 type="button"
                 onClick={exportPDF}
                 data-export-ignore
-                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 cursor-pointer"
+                className="flex items-center gap-1 sm:gap-2 bg-slate-800 hover:bg-slate-700 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 cursor-pointer"
               >
-                <Download size={16} /> Експорт PDF
+                {pdfBusy
+                  ? <><Loader2 size={16} className="animate-spin" /> <span className="hidden sm:inline">Генерація…</span></>
+                  : <><Download size={16} /> <span className="hidden sm:inline">Експорт</span> PDF</>}
               </button>
             ) : null}
           </div>
         </div>
       </header>
 
-      <main className="max-w-screen-2xl mx-auto px-4 py-8 w-full" id="main-report">
+      <main className="max-w-screen-2xl mx-auto px-3 sm:px-4 py-4 sm:py-8 w-full" id="main-report">
         {appSection === 'vaf' ? (
           <VafAnalyzer />
         ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 sm:gap-8">
           {/* Left Side: Inputs */}
-          <div className="lg:col-span-12 xl:col-span-4 2xl:col-span-5 space-y-8 min-w-0">
+          <div className="xl:col-span-5 space-y-6 sm:space-y-8 min-w-0">
             <section className="animate-fade-in">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
                   <Info className="text-blue-500" size={24} /> Параметри мережі
                 </h2>
               </div>
@@ -449,48 +527,28 @@ const App = () => {
                 setScheme={setScheme}
                 voltageType={voltageType}
                 setVoltageType={setVoltageType}
+                frequency={frequency}
+                setFrequency={setFrequency}
+                loadType={loadType}
+                setLoadType={setLoadType}
               />
             </section>
 
             <section className="animate-fade-in" style={{ animationDelay: '0.1s' }}>
-              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+              <h2 className="text-xl sm:text-2xl font-bold mb-4 flex items-center gap-2">
                 <Zap className="text-yellow-500" size={24} /> Результати аналізу
               </h2>
-              <ResultsDisplay results={results} diagnostics={diagnostics} />
+              <ResultsDisplay results={results} diagnostics={diagnostics} measurements={measurements} scheme={scheme} voltageType={voltageType} />
             </section>
           </div>
 
           {/* Right Side: Diagram */}
-          <div className="lg:col-span-12 xl:col-span-8 2xl:col-span-7 min-w-0 w-full">
+          <div className="xl:col-span-7 min-w-0 w-full">
             <div className="sticky top-24 animate-fade-in w-full min-w-0" style={{ animationDelay: '0.2s' }}>
-              <h2 className="text-2xl font-bold mb-3 flex items-center gap-2">
+              <h2 className="text-xl sm:text-2xl font-bold mb-3 flex items-center gap-2">
                 <Info className="text-purple-500" size={24} /> Векторні діаграми
               </h2>
-              <div className="space-y-3 mb-4" data-export-ignore>
-                {DIAGRAM_GROUPS.map((group) => (
-                  <div key={group.title}>
-                    <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5 font-semibold">
-                      {group.title}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {group.modes.map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => setDiagramMode(m.id)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-                            diagramMode === m.id
-                              ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/30'
-                              : 'bg-slate-800/80 border-slate-600 text-slate-300 hover:bg-slate-700'
-                          }`}
-                        >
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {renderDiagramModeSelector()}
               {(diagramMode === 'voltageTriangle' || diagramMode === 'impedanceTriangle') && (
                 <div className="flex flex-wrap items-center gap-2 mb-3" data-export-ignore>
                   <span className="text-xs text-slate-500">Фаза трикутника:</span>
@@ -510,10 +568,10 @@ const App = () => {
                   ))}
                 </div>
               )}
-              {renderDiagram(960)}
+              {renderDiagram(isMobile ? 640 : 960)}
               
-              <div className="mt-6 p-4 bg-slate-800/30 rounded-xl border border-slate-800 text-sm text-slate-400">
-                <p className="flex items-start gap-2 italic">
+              <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-slate-800/30 rounded-xl border border-slate-800 text-sm text-slate-400">
+                <p className="flex items-start gap-2 italic text-xs sm:text-sm">
                   <Info size={16} className="mt-0.5 flex-shrink-0" />
                   {DIAGRAM_NOTES[diagramMode]}
                 </p>
@@ -524,8 +582,8 @@ const App = () => {
         )}
       </main>
 
-      <footer className="mt-20 border-t border-slate-900 bg-slate-950 p-8 text-center text-slate-600">
-        <p className="text-sm">VectorAnalyzer 3Ph © 2026 • Розроблено для трифазних мереж України</p>
+      <footer className="mt-12 sm:mt-20 border-t border-slate-900 bg-slate-950 p-6 sm:p-8 text-center text-slate-600">
+        <p className="text-xs sm:text-sm">VectorAnalyzer 3Ph © 2026 • Розроблено для трифазних мереж України</p>
       </footer>
 
       {appSection === 'classic' ? (

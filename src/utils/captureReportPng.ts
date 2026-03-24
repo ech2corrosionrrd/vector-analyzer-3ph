@@ -1,7 +1,9 @@
-import html2canvas from 'html2canvas';
-import { toPng } from 'html-to-image';
+/**
+ * Lazy-loaded rasterization for PDF export.
+ * html2canvas and html-to-image are loaded ONLY when export is triggered.
+ */
 
-function decodePngDimensions(dataUrl) {
+function decodePngDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () =>
@@ -14,7 +16,7 @@ function decodePngDimensions(dataUrl) {
   });
 }
 
-async function isUsableRaster(dataUrl) {
+async function isUsableRaster(dataUrl: string): Promise<boolean> {
   if (
     typeof dataUrl !== 'string' ||
     !dataUrl.startsWith('data:image/png') ||
@@ -27,10 +29,9 @@ async function isUsableRaster(dataUrl) {
 }
 
 /**
- * Растеризує вузол звіту для jsPDF. html-to-image інколи дає порожній файл при
- * transform/overflow; html2canvas зазвичай стабільніший для Tailwind + SVG.
+ * Растеризує вузол звіту для jsPDF. Бібліотеки завантажуються лише при виклику (lazy).
  */
-export async function captureReportElementToPngDataUrl(element) {
+export async function captureReportElementToPngDataUrl(element: HTMLElement): Promise<string> {
   const prev = {
     maxHeight: element.style.maxHeight,
     maxWidth: element.style.maxWidth,
@@ -48,7 +49,9 @@ export async function captureReportElementToPngDataUrl(element) {
   );
 
   try {
+    // Lazy-load html2canvas
     const attemptHtml2Canvas = async () => {
+      const { default: html2canvas } = await import('html2canvas');
       const canvas = await html2canvas(element, {
         scale: 2,
         backgroundColor: '#ffffff',
@@ -62,12 +65,15 @@ export async function captureReportElementToPngDataUrl(element) {
       return canvas.toDataURL('image/png');
     };
 
-    const attemptToPng = () =>
-      toPng(element, {
+    // Lazy-load html-to-image
+    const attemptToPng = async () => {
+      const { toPng } = await import('html-to-image');
+      return toPng(element, {
         backgroundColor: '#ffffff',
         cacheBust: true,
         pixelRatio: 2,
       });
+    };
 
     let dataUrl = '';
     try {

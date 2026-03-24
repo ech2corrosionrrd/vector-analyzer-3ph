@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback } from 'react';
 import { Activity, ClipboardCopy, Gauge } from 'lucide-react';
 import VectorDiagram from './VectorDiagram';
 import { MeterConnectionSchematic } from './MeterConnectionSchematic';
+import { RealisticMeterSchematic } from './RealisticMeterSchematic';
 import {
   computeTransformationK,
   computeCurrentPhasors,
@@ -267,7 +268,7 @@ export function VafAnalyzer() {
                       step="any"
                       value={Uabc[ph]}
                       onChange={(e) => setPhaseField(Uabc, setUabc, ph, e.target.value)}
-                      className="w-24 rounded bg-slate-950 border border-slate-700 px-2 py-1"
+                      className="w-full sm:w-24 rounded bg-slate-950 border border-slate-700 px-2 py-1"
                     />
                   </td>
                   <td className="py-2 pr-2">
@@ -277,7 +278,7 @@ export function VafAnalyzer() {
                       step="any"
                       value={Iabc[ph]}
                       onChange={(e) => setPhaseField(Iabc, setIabc, ph, e.target.value)}
-                      className="w-24 rounded bg-slate-950 border border-slate-700 px-2 py-1"
+                      className="w-full sm:w-24 rounded bg-slate-950 border border-slate-700 px-2 py-1"
                     />
                   </td>
                   <td className="py-2 pr-2">
@@ -286,7 +287,7 @@ export function VafAnalyzer() {
                       step="any"
                       value={phiDeg[ph]}
                       onChange={(e) => setPhaseField(phiDeg, setPhiDeg, ph, e.target.value)}
-                      className="w-24 rounded bg-slate-950 border border-slate-700 px-2 py-1"
+                      className="w-full sm:w-24 rounded bg-slate-950 border border-slate-700 px-2 py-1"
                     />
                   </td>
                 </tr>
@@ -309,7 +310,12 @@ export function VafAnalyzer() {
           </h3>
           <VectorDiagram vectors={vectors} size={840} />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 space-y-6">
+          <RealisticMeterSchematic
+            scheme={scheme}
+            voltage={voltageLevel as any}
+            verdicts={verdicts}
+          />
           <MeterConnectionSchematic
             connectionScheme={scheme}
             voltageLevel={voltageLevel}

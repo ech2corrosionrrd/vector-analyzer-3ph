@@ -15,6 +15,7 @@ import {
   polarFromRect,
   symmetricalVoltageComponents,
 } from './calculations';
+import { PHASE_COLORS } from './constants';
 
 const PHASES = ['A', 'B', 'C'];
 
@@ -92,7 +93,7 @@ export const buildVafDiagramVectors = ({
   Iabc,
   currentPhasorsRect,
 }) => {
-  const colors = { A: '#facc15', B: '#22c55e', C: '#ef4444' };
+  const colors = PHASE_COLORS;
   const v = [];
 
   for (const p of PHASES) {

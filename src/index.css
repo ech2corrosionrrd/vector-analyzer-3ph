@@ -97,3 +97,70 @@ body {
 .meter-wire--pulse {
   animation: meter-wire-pulse 1.15s ease-in-out infinite;
 }
+
+/* Realistic meter: error wire pulse */
+.realistic-wire--pulse {
+  animation: meter-wire-pulse 0.9s ease-in-out infinite;
+  filter: drop-shadow(0 0 4px #ef4444);
+}
+
+/* Correction overlay fade-in */
+.correction-overlay {
+  animation: fadeIn 0.4s ease-out;
+}
+.correction-layer {
+  pointer-events: none;
+}
+
+/* ===== Mobile Adaptation ===== */
+
+/* Ensure all inputs are properly sized for touch */
+@media (max-width: 768px) {
+  input[type="number"],
+  select {
+    min-height: 44px;
+    font-size: 16px; /* prevents iOS zoom on focus */
+  }
+
+  /* Reduce heavy padding on mobile */
+  .phase-card {
+    padding: 1rem;
+  }
+
+  /* Compact results cards */
+  .results-display .grid {
+    gap: 0.75rem;
+  }
+
+  /* Better SVG diagram display on small screens */
+  .vector-diagram-container {
+    padding: 0.75rem;
+    border-radius: 1rem;
+  }
+
+  .vector-svg {
+    filter: drop-shadow(0 5px 8px rgba(0, 0, 0, 0.4));
+  }
+
+  /* Make table inputs bigger for touch */
+  table input[type="number"] {
+    min-width: 4.5rem;
+    padding: 0.5rem;
+  }
+}
+
+/* Small mobile (< 480px) */
+@media (max-width: 480px) {
+  input[type="number"],
+  select {
+    font-size: 16px;
+  }
+
+  h2 {
+    font-size: 1.15rem;
+  }
+
+  .vector-diagram-container {
+    padding: 0.5rem;
+  }
+}

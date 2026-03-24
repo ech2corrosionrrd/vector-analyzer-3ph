@@ -1,12 +1,14 @@
 import {
   toPhaseVoltage,
+  radToDeg,
   formatScalarForLabel,
   formatAngleForLabel,
   lineVoltagesFromPhasePhasors,
   symmetricalVoltageComponents,
 } from './calculations';
+import { PHASE_COLORS } from './constants';
 
-const colors = { A: '#facc15', B: '#22c55e', C: '#ef4444' };
+const colors = PHASE_COLORS;
 
 /**
  * @param {'combined'|'voltage'|'current'|'line'|'power'|'sequence'} kind
@@ -134,7 +136,7 @@ export function buildDiagramVectors(kind, ctx) {
 
   if (kind === 'power') {
     const { P, Q, S } = results.total;
-    const phiDeg = radToDegSafe(Math.atan2(Q, P));
+    const phiDeg = radToDeg(Math.atan2(Q, P));
     const qMag = Math.abs(Q);
     const maxPQ = Math.max(Math.abs(P), qMag, S, 1e-9);
 
@@ -216,6 +218,3 @@ export function buildDiagramVectors(kind, ctx) {
   return v;
 }
 
-function radToDegSafe(rad) {
-  return (rad * 180) / Math.PI;
-}
