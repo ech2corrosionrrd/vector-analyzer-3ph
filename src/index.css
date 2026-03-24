@@ -82,3 +82,18 @@ body {
 .vector-svg {
   filter: drop-shadow(0 10px 15px rgba(0, 0, 0, 0.5));
 }
+
+/* ВАФ: пульсація проводів з помилкою на схемі підключення */
+@keyframes meter-wire-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.38;
+  }
+}
+
+.meter-wire--pulse {
+  animation: meter-wire-pulse 1.15s ease-in-out infinite;
+}

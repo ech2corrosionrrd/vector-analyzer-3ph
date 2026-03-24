@@ -6,6 +6,7 @@ import { jsPDF } from 'jspdf';
 import { captureReportElementToPngDataUrl } from './utils/captureReportPng';
 
 import VectorDiagram from './components/VectorDiagram';
+import { VafAnalyzer } from './components/VafAnalyzer';
 import InputForm from './components/InputForm';
 import ResultsDisplay from './components/ResultsDisplay';
 import { PdfExportDocument } from './components/PdfExportDocument';
@@ -89,6 +90,7 @@ const diagramModeLabelLookup = (mode) => {
 };
 
 const App = () => {
+  const [appSection, setAppSection] = useState('classic'); // 'classic' | 'vaf'
   const [angleMode, setAngleMode] = useState('relative'); // 'relative' or 'phi'
   const [scheme, setScheme] = useState('star');
   const [voltageType, setVoltageType] = useState('phase');
@@ -386,20 +388,49 @@ const App = () => {
               <p className="text-[10px] text-slate-500 font-semibold tracking-widest uppercase">Professional Power Diagnostics</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <button 
-              type="button"
-              onClick={exportPDF}
-              data-export-ignore
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 cursor-pointer"
-            >
-              <Download size={16} /> Експорт PDF
-            </button>
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            <div className="flex rounded-lg border border-slate-700 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setAppSection('classic')}
+                className={`px-3 py-2 text-xs font-semibold transition-colors ${
+                  appSection === 'classic'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                VectorAnalyzer
+              </button>
+              <button
+                type="button"
+                onClick={() => setAppSection('vaf')}
+                className={`px-3 py-2 text-xs font-semibold transition-colors ${
+                  appSection === 'vaf'
+                    ? 'bg-cyan-600 text-white'
+                    : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ВАФ-Аналізатор
+              </button>
+            </div>
+            {appSection === 'classic' ? (
+              <button
+                type="button"
+                onClick={exportPDF}
+                data-export-ignore
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 cursor-pointer"
+              >
+                <Download size={16} /> Експорт PDF
+              </button>
+            ) : null}
           </div>
         </div>
       </header>
 
       <main className="max-w-screen-2xl mx-auto px-4 py-8 w-full" id="main-report">
+        {appSection === 'vaf' ? (
+          <VafAnalyzer />
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Left Side: Inputs */}
           <div className="lg:col-span-12 xl:col-span-4 2xl:col-span-5 space-y-8 min-w-0">
@@ -490,12 +521,14 @@ const App = () => {
             </div>
           </div>
         </div>
+        )}
       </main>
 
       <footer className="mt-20 border-t border-slate-900 bg-slate-950 p-8 text-center text-slate-600">
         <p className="text-sm">VectorAnalyzer 3Ph © 2026 • Розроблено для трифазних мереж України</p>
       </footer>
 
+      {appSection === 'classic' ? (
       <PdfExportDocument
         forCapture={pdfCaptureOpen}
         measurements={measurements}
@@ -511,6 +544,7 @@ const App = () => {
       >
         {renderDiagram(580)}
       </PdfExportDocument>
+      ) : null}
     </div>
   );
 };
