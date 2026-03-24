@@ -16,8 +16,17 @@ import {
   symmetricalVoltageComponents,
 } from './calculations';
 import { PHASE_COLORS } from './constants';
+import {
+  Phase,
+  ConnectionScheme,
+  TransformerRatios,
+  VafPhaseValues,
+  AnalysisVerdict,
+  VafPowerResults,
+  VerdictCode,
+} from '../types/vaf';
 
-const PHASES = ['A', 'B', 'C'];
+const PHASES: Phase[] = ['A', 'B', 'C'];
 
 /** Поріг |I₂|/|I₁| за струмами — підозра на зворотну послідовність / переплутані фази. */
 export const VAF_PHASE_SWAP_RATIO_THRESHOLD = 0.35;
@@ -35,9 +44,9 @@ export const VAF_PHI_OK_TOLERANCE_DEG = 10;
 export const VAF_2TS_IA_IC_ANGLE_TOL_DEG = 22;
 
 /** Кути напруг (еталон прямої послідовності за ТЗ) */
-export const VAF_VOLTAGE_ANGLES = { A: 0, B: -120, C: 120 };
+export const VAF_VOLTAGE_ANGLES: Record<Phase, number> = { A: 0, B: -120, C: 120 };
 
-const normDeg = (d) => {
+const normDeg = (d: number | string): number => {
   const x = Number(d);
   if (!Number.isFinite(x)) return 0;
   let a = x % 360;
@@ -45,7 +54,7 @@ const normDeg = (d) => {
   return a;
 };
 
-const normSignedDeg = (d) => {
+const normSignedDeg = (d: number | string): number => {
   let a = Number(d);
   if (!Number.isFinite(a)) return 0;
   while (a > 180) a -= 360;
@@ -54,9 +63,9 @@ const normSignedDeg = (d) => {
 };
 
 /**
- * @param {{ IPrim: number, ISec: number, UPrim: number, USec: number }} ratios
+ * Обчислення загального коефіцієнта трансформації K = Ki * Ku
  */
-export const computeTransformationK = (ratios) => {
+export const computeTransformationK = (ratios: TransformerRatios): number => {
   const { IPrim, ISec, UPrim, USec } = ratios;
   const ki = ISec > 0 ? IPrim / ISec : 0;
   const ku = USec > 0 ? UPrim / USec : 0;
@@ -66,8 +75,12 @@ export const computeTransformationK = (ratios) => {
 /**
  * Комплексні струми; для 2_ТС I_B = −(I_A + I_C).
  */
-export const computeCurrentPhasors = (scheme, Iabc, phiDeg) => {
-  const rect = {};
+export const computeCurrentPhasors = (
+  scheme: ConnectionScheme,
+  Iabc: VafPhaseValues,
+  phiDeg: VafPhaseValues
+): Record<Phase, { re: number; im: number }> => {
+  const rect = {} as Record<Phase, { re: number; im: number }>;
   for (const p of PHASES) {
     const mag = Math.max(0, Number(Iabc[p]) || 0);
     const phi = Number(phiDeg[p]) || 0;
@@ -92,9 +105,14 @@ export const buildVafDiagramVectors = ({
   Uabc,
   Iabc,
   currentPhasorsRect,
+}: {
+  scheme: ConnectionScheme;
+  Uabc: VafPhaseValues;
+  Iabc: VafPhaseValues;
+  currentPhasorsRect: Record<Phase, { re: number; im: number }>;
 }) => {
   const colors = PHASE_COLORS;
-  const v = [];
+  const v: any[] = [];
 
   for (const p of PHASES) {
     const Um = Math.max(0, Number(Uabc[p]) || 0);
@@ -112,7 +130,8 @@ export const buildVafDiagramVectors = ({
   }
 
   for (const p of PHASES) {
-    const polar = polarFromRect(currentPhasorsRect[p].re, currentPhasorsRect[p].im);
+    const rect = currentPhasorsRect[p];
+    const polar = polarFromRect(rect.re, rect.im);
     const mag = polar.mag;
     const ang = polar.deg;
     const Im = scheme === '2_TS' && p === 'B' ? null : Math.max(0, Number(Iabc[p]) || 0);
@@ -135,12 +154,12 @@ export const buildVafDiagramVectors = ({
   return v;
 };
 
-function angleDiffDeg(a, b) {
+function angleDiffDeg(a: number, b: number): number {
   return Math.abs(normSignedDeg(a - b));
 }
 
 /** Найменший кут між напрямками двох векторів, 0…180°. */
-function smallestAngleBetweenDirectionsDeg(degA, degB) {
+function smallestAngleBetweenDirectionsDeg(degA: number, degB: number): number {
   const a = normDeg(degA);
   const b = normDeg(degB);
   let d = Math.abs(a - b);
@@ -149,7 +168,7 @@ function smallestAngleBetweenDirectionsDeg(degA, degB) {
 }
 
 /**
- * @returns {{ code: string, message: string }[]}
+ * Основна діагностика
  */
 export function runVafDiagnostics({
   scheme,
@@ -159,9 +178,16 @@ export function runVafDiagnostics({
   phiToleranceDeg = VAF_PHI_OK_TOLERANCE_DEG,
   phaseSwapRatioThreshold = VAF_PHASE_SWAP_RATIO_THRESHOLD,
   twoTsIaIcAngleTolDeg = VAF_2TS_IA_IC_ANGLE_TOL_DEG,
-}) {
-  const phiTol = phiToleranceDeg;
-  const out = [];
+}: {
+  scheme: ConnectionScheme;
+  Iabc: VafPhaseValues;
+  phiDeg: VafPhaseValues;
+  currentPhasorsRect: Record<Phase, { re: number; im: number }>;
+  phiToleranceDeg?: number;
+  phaseSwapRatioThreshold?: number;
+  twoTsIaIcAngleTolDeg?: number;
+}): AnalysisVerdict[] {
+  const out: AnalysisVerdict[] = [];
 
   const phasesPhi = PHASES.map((p) => {
     const raw = Number(phiDeg[p]);
@@ -186,7 +212,8 @@ export function runVafDiagnostics({
 
   let hasWrongU = false;
   for (const p of PHASES) {
-    const iPol = polarFromRect(currentPhasorsRect[p].re, currentPhasorsRect[p].im);
+    const iRect = currentPhasorsRect[p];
+    const iPol = polarFromRect(iRect.re, iRect.im);
     if (iPol.mag < 0.02 * iMax) continue;
     for (const q of PHASES) {
       if (p === q) continue;
@@ -206,7 +233,11 @@ export function runVafDiagnostics({
   const pb = polarFromRect(currentPhasorsRect.B.re, currentPhasorsRect.B.im);
   const pc = polarFromRect(currentPhasorsRect.C.re, currentPhasorsRect.C.im);
   const iMean = (pa.mag + pb.mag + pc.mag) / 3;
-  const seq = symmetricalVoltageComponents(pa, pb, pc);
+  
+  const seq = symmetricalVoltageComponents(pa.deg, pb.deg, pc.deg);
+  // Note: we only check angles here for sequence, but ideally we'd use complex values.
+  // The symmetricalVoltageComponents in calculations.ts uses (degA, degB, degC).
+  
   const v1m = seq.V1.mag;
   const v2m = seq.V2.mag;
   const swapRatio = v1m > 1e-9 ? v2m / v1m : v2m > 1e-6 ? 1 : 0;
@@ -256,7 +287,7 @@ export function runVafDiagnostics({
 
   const allInductive = phasesPhi.every(({ phi }) => {
     const n = normSignedDeg(phi);
-    return n >= -phiTol && n <= 90 + phiTol;
+    return n >= -phiToleranceDeg && n <= 90 + phiToleranceDeg;
   });
 
   const critical = hasRev || hasWrongU || hasPhaseSwap;
@@ -267,8 +298,8 @@ export function runVafDiagnostics({
     });
   }
 
-  const seen = new Set();
-  const unique = [];
+  const seen = new Set<string>();
+  const unique: AnalysisVerdict[] = [];
   for (const f of out) {
     const key = `${f.code}:${f.message}`;
     if (seen.has(key)) continue;
@@ -276,13 +307,13 @@ export function runVafDiagnostics({
     unique.push(f);
   }
 
-  const order = { REV_I: 0, WRONG_U: 1, PHASE_SWAP: 2, ASYM: 3, OK: 4 };
+  const order: Record<string, number> = { REV_I: 0, WRONG_U: 1, PHASE_SWAP: 2, ASYM: 3, OK: 4 };
   unique.sort((a, b) => (order[a.code] ?? 9) - (order[b.code] ?? 9));
 
   return unique;
 }
 
-const mergeWireState = (prev, next) => {
+const mergeWireState = (prev: string, next: string): 'ok' | 'warning' | 'error' => {
   if (prev === 'error' || next === 'error') return 'error';
   if (prev === 'warning' || next === 'warning') return 'warning';
   return 'ok';
@@ -290,28 +321,22 @@ const mergeWireState = (prev, next) => {
 
 /**
  * Стан підсвітки проводів для схеми лічильника: струмові гілки ТС та напруги ТН по фазах.
- * @param {{ code: string, message?: string, meta?: object }[]} verdicts
- * @returns {{
- *   tsCurrent: Record<'A'|'B'|'C', 'ok'|'warning'|'error'>,
- *   tnVoltage: Record<'A'|'B'|'C', 'ok'|'warning'|'error'>,
- *   global: 'ok'|'warning'
- * }}
  */
-export function buildMeterWireHighlights(verdicts) {
-  const ts = { A: 'ok', B: 'ok', C: 'ok' };
-  const tv = { A: 'ok', B: 'ok', C: 'ok' };
-  let global = 'ok';
+export function buildMeterWireHighlights(verdicts: AnalysisVerdict[]) {
+  const ts = { A: 'ok', B: 'ok', C: 'ok' } as Record<Phase, 'ok' | 'warning' | 'error'>;
+  const tv = { A: 'ok', B: 'ok', C: 'ok' } as Record<Phase, 'ok' | 'warning' | 'error'>;
+  let global: 'ok' | 'warning' = 'ok';
 
   for (const v of verdicts) {
     if (!v || typeof v !== 'object') continue;
     if (v.code === 'REV_I' && v.meta?.revPhase) {
       const ph = v.meta.revPhase;
-      if (ts[ph] !== undefined) ts[ph] = mergeWireState(ts[ph], 'error');
+      ts[ph] = mergeWireState(ts[ph], 'error');
     }
     if (v.code === 'WRONG_U' && v.meta?.currentPhase && v.meta?.voltagePhase) {
       const { currentPhase: cp, voltagePhase: vp } = v.meta;
-      if (ts[cp] !== undefined) ts[cp] = mergeWireState(ts[cp], 'error');
-      if (tv[vp] !== undefined) tv[vp] = mergeWireState(tv[vp], 'error');
+      ts[cp] = mergeWireState(ts[cp], 'error');
+      tv[vp] = mergeWireState(tv[vp], 'error');
     }
     if (v.code === 'PHASE_SWAP') {
       global = 'warning';
@@ -336,10 +361,13 @@ export function buildMeterWireHighlights(verdicts) {
 /**
  * Підсумок по фазах для звітів і схеми (phaseA / phaseB / phaseC).
  */
-export function buildPhaseAnalysisSummary(verdicts, wireHighlights) {
+export function buildPhaseAnalysisSummary(
+  verdicts: AnalysisVerdict[], 
+  wireHighlights: { tsCurrent: Record<Phase, string>, tnVoltage: Record<Phase, string> }
+) {
   const { tsCurrent, tnVoltage } = wireHighlights;
 
-  const pick = (ph) => {
+  const pick = (ph: Phase): VerdictCode => {
     if (verdicts.some((v) => v.code === 'REV_I' && v.meta?.revPhase === ph)) return 'REV_I';
     const wuI = verdicts.some(
       (v) => v.code === 'WRONG_U' && v.meta?.currentPhase === ph,
@@ -362,7 +390,7 @@ export function buildPhaseAnalysisSummary(verdicts, wireHighlights) {
   };
 }
 
-export function validateDateDdMmYyyy(s) {
+export function validateDateDdMmYyyy(s: string) {
   const m = String(s).trim().match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if (!m) return { ok: false, error: 'Формат дати: ДД.ММ.РРРР' };
   const d = Number(m[1]);
@@ -387,7 +415,35 @@ export function buildVafTextReport({
   phiDeg,
   K,
   verdicts,
+  power,
+}: {
+  objectName: string;
+  dateStr: string;
+  voltageLevel: string;
+  scheme: ConnectionScheme;
+  ratios: TransformerRatios;
+  Uabc: VafPhaseValues;
+  Iabc: VafPhaseValues;
+  phiDeg: VafPhaseValues;
+  K: number;
+  verdicts: AnalysisVerdict[];
+  power: VafPowerResults;
 }) {
+  const { totalPpri, totalQpri, totalSpri, avgCosPhi } = power || {};
+  
+  const fmtP = (v: number) => {
+    if (Math.abs(v) > 1000000) return (v / 1000000).toFixed(3) + ' МВт';
+    return (v / 1000).toFixed(2) + ' кВт';
+  };
+  const fmtQ = (v: number) => {
+    if (Math.abs(v) > 1000000) return (v / 1000000).toFixed(3) + ' Мвар';
+    return (v / 1000).toFixed(2) + ' квар';
+  };
+  const fmtS = (v: number) => {
+    if (Math.abs(v) > 1000000) return (v / 1000000).toFixed(3) + ' МВА';
+    return (v / 1000).toFixed(2) + ' кВА';
+  };
+
   const lines = [
     'Звіт ВАФ-Аналізатор',
     '==================',
@@ -398,10 +454,16 @@ export function buildVafTextReport({
     `ТС: ${ratios.IPrim}/${ratios.ISec} А; ТН: ${ratios.UPrim}/${ratios.USec} В`,
     `K = (Iперв/Iвтор)·(Uперв/Uвтор) = ${K.toFixed(4)}`,
     '',
-    'Показники ВАФ:',
+    'Показники ВАФ (вторинні):',
     `  U_A=${Uabc.A} В, U_B=${Uabc.B} В, U_C=${Uabc.C} В`,
     `  I_A=${Iabc.A} А, I_B=${Iabc.B} А, I_C=${Iabc.C} А`,
     `  φ_A=${phiDeg.A}°, φ_B=${phiDeg.B}°, φ_C=${phiDeg.C}°`,
+    '',
+    'Навантаження (первинне):',
+    `  ΣP = ${fmtP(totalPpri || 0)}`,
+    `  ΣQ = ${fmtQ(totalQpri || 0)} (${(totalQpri || 0) >= 0 ? 'інд' : 'ємн'})`,
+    `  ΣS = ${fmtS(totalSpri || 0)}`,
+    `  cos φ = ${(avgCosPhi || 1).toFixed(3)}`,
     '',
     'Висновок аналізу:',
   ];

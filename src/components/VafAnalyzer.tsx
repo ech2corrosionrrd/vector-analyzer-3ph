@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from 'react';
-import { Activity, ClipboardCopy, Gauge } from 'lucide-react';
+import { Activity, ClipboardCopy, Gauge, ShieldAlert, BarChart3, Zap, Info } from 'lucide-react';
 import VectorDiagram from './VectorDiagram';
 import { MeterConnectionSchematic } from './MeterConnectionSchematic';
 import { RealisticMeterSchematic } from './RealisticMeterSchematic';
@@ -15,16 +15,21 @@ import {
   VAF_PHI_OK_TOLERANCE_DEG,
   VAF_PHASE_SWAP_RATIO_THRESHOLD,
 } from '../utils/vafAnalysis';
+import { 
+  ConnectionScheme, 
+  VafPhaseValues, 
+  AnalysisVerdict, 
+  Phase, 
+  TransformerRatios,
+  VafPowerResults,
+  VerdictCode
+} from '../types/vaf';
 
-const defaultU = { A: 100, B: 100, C: 100 };
-const defaultI = { A: 5, B: 5, C: 5 };
-const defaultPhi = { A: 30, B: 30, C: 30 };
-
-function pad2(n) {
+function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-function todayDdMmYyyy() {
+function todayDdMmYyyy(): string {
   const d = new Date();
   return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`;
 }
@@ -39,47 +44,57 @@ const VOLTAGE_LEVELS = [
 /** Стандартні значення вторинних кіл для кожного рівня напруги */
 const VOLTAGE_PRESETS: Record<string, {
   Usec: number;       // Вторинна напруга фази (В)
+  Imeas: number;      // Реальний вторинний струм (А) — типове навантаження
+  phiTyp: number;     // Типовий cosφ для даного рівня
   UPrim: number;      // Первинна напруга ТН (В)
   USec: number;       // Вторинна напруга ТН (В)
   IPrim: number;      // Первинний струм ТС (А)
-  ISec: number;       // Вторинний струм ТС (А)
-  label: string;      // Підказка
+  ISec: number;       // Номінальний вторинний струм ТС (А)
+  label: string;
 }> = {
   '0.4': {
     Usec: 220,
+    Imeas: 3.2,
+    phiTyp: 25,
     UPrim: 400,
     USec: 400,
     IPrim: 200,
     ISec: 5,
-    label: 'Пряме підключення (без ТН), Uф = 220 В',
+    label: 'Пряме підкл. (без ТН), Uф=220В, ТС 200/5',
   },
   '6-10': {
     Usec: 57.7,
+    Imeas: 2.5,
+    phiTyp: 30,
     UPrim: 10000,
     USec: 100,
     IPrim: 300,
     ISec: 5,
-    label: 'ТН 10000/100 В, Uвтор.ф = 100/√3 ≈ 57,7 В',
+    label: 'ТН 10000/100, Uвт.ф=57,7В, ТС 300/5',
   },
   '35': {
     Usec: 57.7,
+    Imeas: 2.0,
+    phiTyp: 28,
     UPrim: 35000,
     USec: 100,
     IPrim: 600,
     ISec: 5,
-    label: 'ТН 35000/100 В, Uвтор.ф = 57,7 В',
+    label: 'ТН 35000/100, Uвт.ф=57,7В, ТС 600/5',
   },
   '110': {
     Usec: 57.7,
+    Imeas: 1.5,
+    phiTyp: 22,
     UPrim: 110000,
     USec: 100,
     IPrim: 1000,
     ISec: 5,
-    label: 'ТН 110000/100 В, Uвтор.ф = 57,7 В',
+    label: 'ТН 110000/100, Uвт.ф=57,7В, ТС 1000/5',
   },
 };
 
-const verdictStyles = {
+const verdictStyles: Record<string, string> = {
   OK: 'border-emerald-500/40 bg-emerald-950/40 text-emerald-200',
   REV_I: 'border-red-500/50 bg-red-950/30 text-red-200',
   WRONG_U: 'border-red-500/50 bg-red-950/30 text-red-200',
@@ -89,25 +104,27 @@ const verdictStyles = {
 
 export function VafAnalyzer() {
   const [objectName, setObjectName] = useState('');
-  const [dateStr, setDateStr] = useState(todayDdMmYyyy);
+  const [dateStr, setDateStr] = useState(todayDdMmYyyy());
   const [voltageLevel, setVoltageLevel] = useState('0.4');
-  const [scheme, setScheme] = useState('3_TS');
+  const [scheme, setScheme] = useState<ConnectionScheme>('3_TS');
   const [IPrim, setIPrim] = useState(200);
   const [ISec, setISec] = useState(5);
   const [UPrim, setUPrim] = useState(400);
   const [USec, setUSec] = useState(400);
-  const [Uabc, setUabc] = useState(() => ({ A: 220, B: 220, C: 220 }));
-  const [Iabc, setIabc] = useState(() => ({ ...defaultI }));
-  const [phiDeg, setPhiDeg] = useState(() => ({ ...defaultPhi }));
+  const [Uabc, setUabc] = useState<VafPhaseValues>(() => ({ A: 220, B: 220, C: 220 }));
+  const [Iabc, setIabc] = useState<VafPhaseValues>(() => ({ A: 3.2, B: 3.2, C: 3.2 }));
+  const [phiDeg, setPhiDeg] = useState<VafPhaseValues>(() => ({ A: 25, B: 25, C: 25 }));
   const [copyHint, setCopyHint] = useState('');
 
-  /** При зміні рівня напруги — автозаповнення стандартними значеннями */
   const handleVoltageLevelChange = (newLevel: string) => {
     setVoltageLevel(newLevel);
     const preset = VOLTAGE_PRESETS[newLevel];
     if (preset) {
       const u = parseFloat(preset.Usec.toFixed(1));
+      const i = preset.Imeas;
       setUabc({ A: u, B: u, C: u });
+      setIabc({ A: i, B: i, C: i });
+      setPhiDeg({ A: preset.phiTyp, B: preset.phiTyp, C: preset.phiTyp });
       setUPrim(preset.UPrim);
       setUSec(preset.USec);
       setIPrim(preset.IPrim);
@@ -115,7 +132,7 @@ export function VafAnalyzer() {
     }
   };
 
-  const ratios = useMemo(
+  const ratios: TransformerRatios = useMemo(
     () => ({ IPrim, ISec, UPrim, USec }),
     [IPrim, ISec, UPrim, USec],
   );
@@ -126,6 +143,50 @@ export function VafAnalyzer() {
     () => computeCurrentPhasors(scheme, Iabc, phiDeg),
     [scheme, Iabc, phiDeg],
   );
+
+  /** Розрахунок потужності (вторинна та первинна) */
+  const powerResults: VafPowerResults = useMemo(() => {
+    const Ki = ISec > 0 ? IPrim / ISec : 0;
+    const Ku = USec > 0 ? UPrim / USec : 0;
+    const Ktotal = Ki * Ku;
+
+    const phases = {} as Record<Phase, any>;
+    let totalPsec = 0, totalQsec = 0;
+
+    (['A', 'B', 'C'] as const).forEach(p => {
+      const U = Uabc[p];
+      const I = Iabc[p];
+      const phi = phiDeg[p];
+      
+      const rad = (phi * Math.PI) / 180;
+      const cosPhi = Math.cos(rad);
+      const sinPhi = Math.sin(rad);
+
+      const P = U * I * cosPhi;
+      const Q = (scheme === '2_TS' && p === 'B') ? 0 : U * I * sinPhi;
+      const S = (scheme === '2_TS' && p === 'B') ? 0 : U * I;
+
+      phases[p] = {
+        P, Q, S, cosPhi,
+        Ppri: P * Ktotal,
+        Qpri: Q * Ktotal,
+        Spri: S * Ktotal
+      };
+
+      totalPsec += P;
+      if (scheme !== '2_TS' || p !== 'B') {
+        totalQsec += Q;
+      }
+    });
+
+    const totalSsec = Math.hypot(totalPsec, totalQsec);
+    const totalPpri = totalPsec * Ktotal;
+    const totalQpri = totalQsec * Ktotal;
+    const totalSpri = totalSsec * Ktotal;
+    const avgCosPhi = totalSsec > 1e-6 ? Math.abs(totalPsec / totalSsec) : 1;
+
+    return { phases, totalPsec, totalQsec, totalSsec, totalPpri, totalQpri, totalSpri, avgCosPhi, Ktotal };
+  }, [Uabc, Iabc, phiDeg, IPrim, ISec, UPrim, USec, scheme]);
 
   const vectors = useMemo(
     () =>
@@ -138,7 +199,7 @@ export function VafAnalyzer() {
     [scheme, Uabc, Iabc, currentPhasorsRect],
   );
 
-  const verdicts = useMemo(
+  const verdicts: AnalysisVerdict[] = useMemo(
     () =>
       runVafDiagnostics({
         scheme,
@@ -162,7 +223,7 @@ export function VafAnalyzer() {
     () =>
       buildVafTextReport({
         objectName,
-        dateStr: dateValidation.ok ? dateValidation.value : dateStr,
+        dateStr: dateValidation.ok ? (dateValidation.value as string) : dateStr,
         voltageLevel,
         scheme,
         ratios,
@@ -171,8 +232,9 @@ export function VafAnalyzer() {
         phiDeg,
         K,
         verdicts,
+        power: powerResults,
       }),
-    [objectName, dateStr, dateValidation, voltageLevel, scheme, ratios, Uabc, Iabc, phiDeg, K, verdicts],
+    [objectName, dateStr, dateValidation, voltageLevel, scheme, ratios, Uabc, Iabc, phiDeg, K, verdicts, powerResults],
   );
 
   const copyReport = useCallback(async () => {
@@ -186,7 +248,12 @@ export function VafAnalyzer() {
     }
   }, [reportText]);
 
-  const setPhaseField = (obj, setObj, phase, value) => {
+  const setPhaseField = (
+    obj: VafPhaseValues, 
+    setObj: React.Dispatch<React.SetStateAction<VafPhaseValues>>, 
+    phase: Phase, 
+    value: string
+  ) => {
     const n = parseFloat(value);
     setObj({ ...obj, [phase]: Number.isFinite(n) ? n : 0 });
   };
@@ -278,19 +345,19 @@ export function VafAnalyzer() {
 
         <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            ['Iперв (А)', IPrim, setIPrim],
-            ['Iвтор (А)', ISec, setISec],
-            ['Uперв (В)', UPrim, setUPrim],
-            ['Uвтор (В)', USec, setUSec],
-          ].map(([label, val, set]) => (
-            <label key={label} className="block">
-              <span className="text-xs text-slate-500">{label}</span>
+            { label: 'Iперв (А)', val: IPrim, set: setIPrim },
+            { label: 'Iвтор (А)', val: ISec, set: setISec },
+            { label: 'Uперв (В)', val: UPrim, set: setUPrim },
+            { label: 'Uвтор (В)', val: USec, set: setUSec },
+          ].map((item) => (
+            <label key={item.label} className="block">
+              <span className="text-xs text-slate-500">{item.label}</span>
               <input
                 type="number"
                 min={0}
                 step="any"
-                value={val}
-                onChange={(e) => set(parseFloat(e.target.value) || 0)}
+                value={item.val}
+                onChange={(e) => item.set(parseFloat(e.target.value) || 0)}
                 className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5 text-sm"
               />
             </label>
@@ -314,7 +381,7 @@ export function VafAnalyzer() {
               </tr>
             </thead>
             <tbody>
-              {['A', 'B', 'C'].map((ph) => (
+              {(['A', 'B', 'C'] as Phase[]).map((ph) => (
                 <tr key={ph} className="border-t border-slate-800">
                   <td
                     className={`py-2 pr-2 font-bold text-slate-200 ${
@@ -364,6 +431,67 @@ export function VafAnalyzer() {
         </p>
       </section>
 
+      {/* РОЗДІЛ: НАВАНТАЖЕННЯ (ПЕРВИННІ КОЛА) */}
+      <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+        <h3 className="text-lg font-semibold mb-4 text-slate-200 flex items-center gap-2">
+          <Zap className="text-blue-400" size={20} /> Навантаження (первинні кола)
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Активна (ΣP)</div>
+            <div className="text-2xl font-mono font-black text-blue-400">
+              {Math.abs(powerResults.totalPpri) > 1000000 
+                ? (powerResults.totalPpri / 1000000).toFixed(3) + ' МВт'
+                : (powerResults.totalPpri / 1000).toFixed(2) + ' кВт'}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-1">
+              Втор: {powerResults.totalPsec.toFixed(1)} Вт
+            </div>
+          </div>
+          
+          <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Реактивна (ΣQ)</div>
+            <div className="text-2xl font-mono font-black text-purple-400">
+              {Math.abs(powerResults.totalQpri) > 1000000 
+                ? (powerResults.totalQpri / 1000000).toFixed(3) + ' Мвар'
+                : (powerResults.totalQpri / 1000).toFixed(2) + ' квар'}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-1">
+              {powerResults.totalQsec >= 0 ? 'Індуктивна' : 'Ємнісна'}
+            </div>
+          </div>
+
+          <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Повна (ΣS)</div>
+            <div className="text-2xl font-mono font-black text-slate-100">
+              {Math.abs(powerResults.totalSpri) > 1000000 
+                ? (powerResults.totalSpri / 1000000).toFixed(3) + ' МВА'
+                : (powerResults.totalSpri / 1000).toFixed(2) + ' кВА'}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-1">
+              S = √(P² + Q²)
+            </div>
+          </div>
+
+          <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Середній cos φ</div>
+            <div className="text-2xl font-mono font-black text-emerald-400">
+              {powerResults.avgCosPhi.toFixed(3)}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-1">
+              φ ≈ {(Math.acos(Math.min(1, powerResults.avgCosPhi)) * 180 / Math.PI).toFixed(0)}°
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 p-3 bg-blue-900/10 border border-blue-800/20 rounded-lg">
+          <p className="text-xs text-blue-300 flex items-center gap-2">
+            <Info size={14} /> 
+            Розрахункова первинна напруга: <span className="font-bold">{(Uabc.A * (UPrim/USec) * Math.sqrt(3) / 1000).toFixed(2)} кВ</span> (лінійна)
+          </p>
+        </div>
+      </section>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
         <div className="min-w-0">
           <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -393,7 +521,7 @@ export function VafAnalyzer() {
           {verdicts.map((v, i) => (
             <div
               key={`${v.code}-${i}`}
-              className={`rounded-xl border px-4 py-3 text-sm ${verdictStyles[v.code] ?? 'border-slate-700 bg-slate-900/50'}`}
+              className={`rounded-xl border px-4 py-3 text-sm ${verdictStyles[v.code as VerdictCode] ?? 'border-slate-700 bg-slate-900/50'}`}
             >
               <span className="font-mono text-xs opacity-80">{v.code}</span>
               <p className="mt-1">{v.message}</p>

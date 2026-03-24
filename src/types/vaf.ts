@@ -145,6 +145,30 @@ export interface AnalysisResults {
   sequence: PhaseSequence;
 }
 
+/** VAF Power calc for one phase (Secondary & Primary) */
+export interface VafPhasePower {
+  P: number;      // Secondary Active (W)
+  Q: number;      // Secondary Reactive (var)
+  S: number;      // Secondary Apparent (VA)
+  cosPhi: number;
+  Ppri: number;   // Primary Active (W)
+  Qpri: number;   // Primary Reactive (var)
+  Spri: number;   // Primary Apparent (VA)
+}
+
+/** Complete VAF Power results including totals and ratios */
+export interface VafPowerResults {
+  phases: Record<Phase, VafPhasePower>;
+  totalPsec: number;
+  totalQsec: number;
+  totalSsec: number;
+  totalPpri: number;
+  totalQpri: number;
+  totalSpri: number;
+  avgCosPhi: number;
+  Ktotal: number;
+}
+
 // ─── Asymmetry Types ────────────────────────────────────────────────
 
 /** Symmetrical voltage components (Fortescue) */
