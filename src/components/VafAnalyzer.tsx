@@ -36,6 +36,49 @@ const VOLTAGE_LEVELS = [
   { value: '110', label: '110' },
 ];
 
+/** Стандартні значення вторинних кіл для кожного рівня напруги */
+const VOLTAGE_PRESETS: Record<string, {
+  Usec: number;       // Вторинна напруга фази (В)
+  UPrim: number;      // Первинна напруга ТН (В)
+  USec: number;       // Вторинна напруга ТН (В)
+  IPrim: number;      // Первинний струм ТС (А)
+  ISec: number;       // Вторинний струм ТС (А)
+  label: string;      // Підказка
+}> = {
+  '0.4': {
+    Usec: 220,
+    UPrim: 400,
+    USec: 400,
+    IPrim: 200,
+    ISec: 5,
+    label: 'Пряме підключення (без ТН), Uф = 220 В',
+  },
+  '6-10': {
+    Usec: 57.7,
+    UPrim: 10000,
+    USec: 100,
+    IPrim: 300,
+    ISec: 5,
+    label: 'ТН 10000/100 В, Uвтор.ф = 100/√3 ≈ 57,7 В',
+  },
+  '35': {
+    Usec: 57.7,
+    UPrim: 35000,
+    USec: 100,
+    IPrim: 600,
+    ISec: 5,
+    label: 'ТН 35000/100 В, Uвтор.ф = 57,7 В',
+  },
+  '110': {
+    Usec: 57.7,
+    UPrim: 110000,
+    USec: 100,
+    IPrim: 1000,
+    ISec: 5,
+    label: 'ТН 110000/100 В, Uвтор.ф = 57,7 В',
+  },
+};
+
 const verdictStyles = {
   OK: 'border-emerald-500/40 bg-emerald-950/40 text-emerald-200',
   REV_I: 'border-red-500/50 bg-red-950/30 text-red-200',
@@ -49,14 +92,28 @@ export function VafAnalyzer() {
   const [dateStr, setDateStr] = useState(todayDdMmYyyy);
   const [voltageLevel, setVoltageLevel] = useState('0.4');
   const [scheme, setScheme] = useState('3_TS');
-  const [IPrim, setIPrim] = useState(100);
+  const [IPrim, setIPrim] = useState(200);
   const [ISec, setISec] = useState(5);
-  const [UPrim, setUPrim] = useState(10000);
-  const [USec, setUSec] = useState(100);
-  const [Uabc, setUabc] = useState(() => ({ ...defaultU }));
+  const [UPrim, setUPrim] = useState(400);
+  const [USec, setUSec] = useState(400);
+  const [Uabc, setUabc] = useState(() => ({ A: 220, B: 220, C: 220 }));
   const [Iabc, setIabc] = useState(() => ({ ...defaultI }));
   const [phiDeg, setPhiDeg] = useState(() => ({ ...defaultPhi }));
   const [copyHint, setCopyHint] = useState('');
+
+  /** При зміні рівня напруги — автозаповнення стандартними значеннями */
+  const handleVoltageLevelChange = (newLevel: string) => {
+    setVoltageLevel(newLevel);
+    const preset = VOLTAGE_PRESETS[newLevel];
+    if (preset) {
+      const u = parseFloat(preset.Usec.toFixed(1));
+      setUabc({ A: u, B: u, C: u });
+      setUPrim(preset.UPrim);
+      setUSec(preset.USec);
+      setIPrim(preset.IPrim);
+      setISec(preset.ISec);
+    }
+  };
 
   const ratios = useMemo(
     () => ({ IPrim, ISec, UPrim, USec }),
@@ -171,7 +228,7 @@ export function VafAnalyzer() {
             <span className="text-xs uppercase tracking-wide text-slate-500">Рівень напруги, кВ</span>
             <select
               value={voltageLevel}
-              onChange={(e) => setVoltageLevel(e.target.value)}
+              onChange={(e) => handleVoltageLevelChange(e.target.value)}
               className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
             >
               {VOLTAGE_LEVELS.map((o) => (
@@ -180,6 +237,11 @@ export function VafAnalyzer() {
                 </option>
               ))}
             </select>
+            {VOLTAGE_PRESETS[voltageLevel] && (
+              <p className="text-[11px] text-cyan-400/70 mt-1">
+                ⚡ {VOLTAGE_PRESETS[voltageLevel].label}
+              </p>
+            )}
           </label>
           <div className="block">
             <span className="text-xs uppercase tracking-wide text-slate-500">Схема ТС</span>
