@@ -15,6 +15,7 @@ import { OssannaDiagram } from './components/diagrams/OssannaDiagram';
 import { SmithChartDiagram } from './components/diagrams/SmithChartDiagram';
 import { ArchiveModal } from './components/ArchiveModal';
 import { AboutModal } from './components/AboutModal';
+import { ReloadPrompt } from './components/ReloadPrompt';
 import { LearningCenter } from './components/LearningCenter';
 import {
   calculatePhasePower,
@@ -746,6 +747,7 @@ const App = () => {
         isOpen={isLearningOpen}
         onClose={() => setIsLearningOpen(false)}
       />
+      <ReloadPrompt />
     </div>
   );
 };

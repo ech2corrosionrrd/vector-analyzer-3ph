@@ -23,9 +23,11 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
-      // Ми робимо 2 окремі застосунки (desktop/mobile), тому маніфести додаємо вручну в HTML.
-      // PWA плагін лишається для генерації Service Worker.
+      includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
+        cleanupOutdatedCaches: true,
+      },
       manifest: false,
     })
   ],
