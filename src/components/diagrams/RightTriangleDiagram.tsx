@@ -4,6 +4,24 @@ import { formatScalarForLabel, formatAngleForLabel } from '../../utils/calculati
  * Прямокутний трикутник (гіпотенуза c, катети a по горизонталі, b по вертикалі).
  * b > 0 — катет «вгору» на екрані (індуктивний/лаг), b < 0 — вниз (ємнісний).
  */
+interface RightTriangleDiagramProps {
+  title?: string;
+  legH: number;
+  legV: number;
+  hyp: number;
+  labelH: string;
+  labelV: string;
+  labelHyp: string;
+  unitH?: string;
+  unitV?: string;
+  unitHyp?: string;
+  phiDeg?: number;
+  subNote?: string | null;
+  valueH?: number;
+  valueV?: number;
+  valueHyp?: number;
+}
+
 export function RightTriangleDiagram({
   title,
   legH,
@@ -21,7 +39,7 @@ export function RightTriangleDiagram({
   valueH,
   valueV,
   valueHyp,
-}) {
+}: RightTriangleDiagramProps) {
   const a = Math.max(Math.abs(legH), 0);
   const b = legV;
   const c = Math.max(Math.abs(hyp), 1e-12);

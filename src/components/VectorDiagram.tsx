@@ -1,7 +1,16 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { polarToCartesian } from '../utils/calculations';
 
-function ArrowMarker({ id, fill, mw, mh, refX, refY }) {
+interface ArrowMarkerProps {
+  id: string;
+  fill: string;
+  mw: number;
+  mh: number;
+  refX: number;
+  refY: number;
+}
+
+function ArrowMarker({ id, fill, mw, mh, refX, refY }: ArrowMarkerProps) {
   return (
     <marker id={id} markerWidth={mw} markerHeight={mh} refX={refX} refY={refY} orient="auto">
       <polygon points={`0 0, ${mw} ${refY}, 0 ${mh}`} fill={fill} />
@@ -9,8 +18,25 @@ function ArrowMarker({ id, fill, mw, mh, refX, refY }) {
   );
 }
 
+interface VectorItem {
+  magnitude: number;
+  angle: number;
+  color: string;
+  phase: string;
+  label: string;
+  caption?: string;
+  strokeWidth: number;
+  isDashed?: boolean;
+}
+
+interface VectorDiagramProps {
+  vectors: VectorItem[];
+  size?: number;
+}
+
 /** Внутрішній розмір viewBox (чим більше — тим чіткіше при масштабі на весь екран). */
-const VectorDiagram = ({ vectors, size = 960 }) => {
+const VectorDiagram = ({ vectors, size = 960 }: VectorDiagramProps) => {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const k = size / 500;
   const center = size / 2;
   const padding = 40 * k;
@@ -123,6 +149,8 @@ const VectorDiagram = ({ vectors, size = 960 }) => {
         {vectors.map((vector, i) => {
           const { x, y } = polarToCartesian(vector.magnitude * scale, vector.angle, center, center);
           const markerId = `arrowhead-${vector.phase}`;
+          const isHovered = hoveredIndex === i;
+          
           const dx = x - center;
           const dy = y - center;
           const len = Math.hypot(dx, dy) || 1e-6;
@@ -134,33 +162,49 @@ const VectorDiagram = ({ vectors, size = 960 }) => {
           const side = vector.isDashed ? -1 : 1;
           const tx = bx + px * off * side;
           const ty = by + py * off * side;
-          const sw = Math.max(1.5, vector.strokeWidth * (0.6 + 0.5 * k));
+          const sw = Math.max(1.5, vector.strokeWidth * (0.6 + 0.5 * k)) * (isHovered ? 1.4 : 1);
 
           return (
-            <g key={i}>
+            <g 
+              key={i}
+              onMouseEnter={() => setHoveredIndex(i)}
+              onMouseLeave={() => setHoveredIndex(null)}
+              className="transition-all duration-300"
+            >
+              {/* Invisible wider hit area for hover */}
+              <line 
+                x1={center} y1={center} x2={x} y2={y} 
+                stroke="transparent" strokeWidth={24 * k} 
+                className="cursor-pointer"
+              />
               <line
                 x1={center}
                 y1={center}
                 x2={x}
                 y2={y}
-                stroke={vector.color}
+                stroke={isHovered ? '#fff' : vector.color}
                 strokeWidth={sw}
                 strokeDasharray={vector.isDashed ? dash : 'none'}
                 markerEnd={`url(#${markerId})`}
-                className="vector-line cursor-pointer transition-all duration-300 hover:stroke-white"
+                className="vector-line transition-all duration-200"
+                style={{ filter: isHovered ? `drop-shadow(0 0 ${6*k}px ${vector.color})` : 'none' }}
               />
               <text
-                fill={vector.color}
-                className="pointer-events-none select-none"
-                style={{ paintOrder: 'stroke fill' }}
+                fill={isHovered ? '#fff' : vector.color}
+                className="pointer-events-none select-none transition-all duration-200"
+                style={{ 
+                  paintOrder: 'stroke fill',
+                  transform: isHovered ? `scale(${1.1})` : 'none',
+                   transformOrigin: `${tx}px ${ty}px`
+                }}
               >
                 <tspan
                   x={tx}
                   y={ty}
-                  fontSize={fsLabel}
+                  fontSize={isHovered ? fsLabel * 1.1 : fsLabel}
                   fontWeight="700"
                   stroke="#0f172a"
-                  strokeWidth={Math.max(0.35, 0.35 * k)}
+                  strokeWidth={Math.max(0.4, 0.4 * k)}
                 >
                   {vector.label}
                 </tspan>
@@ -168,12 +212,12 @@ const VectorDiagram = ({ vectors, size = 960 }) => {
                   <tspan
                     x={tx}
                     dy={fsCap * 1.15}
-                    fontSize={fsCap}
+                    fontSize={isHovered ? fsCap * 1.1 : fsCap}
                     fontWeight="600"
-                    fill={vector.color}
+                    fill={isHovered ? '#fff' : vector.color}
                     opacity={0.95}
                     stroke="#0f172a"
-                    strokeWidth={Math.max(0.25, 0.22 * k)}
+                    strokeWidth={Math.max(0.3, 0.3 * k)}
                   >
                     {vector.caption}
                   </tspan>
@@ -182,6 +226,23 @@ const VectorDiagram = ({ vectors, size = 960 }) => {
             </g>
           );
         })}
+
+        {/* Floating Tooltip inside SVG */}
+        {hoveredIndex !== null && vectors[hoveredIndex] && (
+          <g className="pointer-events-none transition-opacity duration-300">
+            <rect 
+              x={20 * k} y={20 * k} width={180 * k} height={70 * k} rx={12 * k} 
+              fill="#0f172a" fillOpacity={0.9} stroke={vectors[hoveredIndex].color} strokeWidth={2 * k}
+              className="backdrop-blur-md"
+            />
+            <text x={35 * k} y={45 * k} fill="#fff" fontSize={18 * k} fontWeight="bold">
+              {vectors[hoveredIndex].label}
+            </text>
+            <text x={35 * k} y={72 * k} fill="#94a3b8" fontSize={15 * k} fontWeight="500">
+              {vectors[hoveredIndex].magnitude.toFixed(2)} @ {vectors[hoveredIndex].angle.toFixed(1)}°
+            </text>
+          </g>
+        )}
 
         <circle cx={center} cy={center} r={Math.max(4, 4 * k)} fill="#6b7280" />
       </svg>

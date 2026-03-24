@@ -7,18 +7,19 @@ import {
   buildPhaseAnalysisSummary,
   VAF_VOLTAGE_ANGLES,
 } from '../utils/vafAnalysis';
+import { AnalysisVerdict, VerdictCode, Phase } from '../types/vaf';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
 /** Standard symmetric inductive load: φ = 30° per phase */
-const symIabc = { A: 5, B: 5, C: 5 };
-const symPhiDeg = { A: 30, B: 30, C: 30 };
+const symIabc: Record<string, number> = { A: 5, B: 5, C: 5 };
+const symPhiDeg: Record<string, number> = { A: 30, B: 30, C: 30 };
 
-function makeCurrentPhasors(scheme, Iabc, phiDeg) {
+function makeCurrentPhasors(scheme: any, Iabc: any, phiDeg: any) {
   return computeCurrentPhasors(scheme, Iabc, phiDeg);
 }
 
-function diagnose(overrides = {}) {
+function diagnose(overrides: any = {}): AnalysisVerdict[] {
   const scheme = overrides.scheme ?? '3_TS';
   const Iabc = overrides.Iabc ?? { ...symIabc };
   const phiDeg = overrides.phiDeg ?? { ...symPhiDeg };
@@ -64,7 +65,8 @@ describe('runVafDiagnostics — 3_TS', () => {
     expect(codes).toContain('REV_I');
     // Should mention phase B
     const revVerdict = verdicts.find((v) => v.code === 'REV_I');
-    expect(revVerdict.message).toContain('B');
+    expect(revVerdict).toBeDefined();
+    expect(revVerdict?.message).toContain('B');
   });
 
   it('should detect REV_I when phase A current is reversed (φ = 180°)', () => {
@@ -134,7 +136,7 @@ describe('runVafDiagnostics — 2_TS', () => {
 
 describe('buildMeterWireHighlights', () => {
   it('should return all "ok" for OK verdict', () => {
-    const hl = buildMeterWireHighlights([{ code: 'OK', message: '' }]);
+    const hl = buildMeterWireHighlights([{ code: 'OK' as VerdictCode, message: '' }]);
     expect(hl.tsCurrent.A).toBe('ok');
     expect(hl.tsCurrent.B).toBe('ok');
     expect(hl.tsCurrent.C).toBe('ok');
@@ -143,7 +145,7 @@ describe('buildMeterWireHighlights', () => {
 
   it('should set error state for REV_I on specific phase', () => {
     const hl = buildMeterWireHighlights([
-      { code: 'REV_I', message: '', meta: { revPhase: 'B' } },
+      { code: 'REV_I' as VerdictCode, message: '', meta: { revPhase: 'B' as Phase } },
     ]);
     expect(hl.tsCurrent.B).toBe('error');
     expect(hl.tsCurrent.A).toBe('ok');
@@ -151,7 +153,7 @@ describe('buildMeterWireHighlights', () => {
 
   it('should set warning on all wires for PHASE_SWAP', () => {
     const hl = buildMeterWireHighlights([
-      { code: 'PHASE_SWAP', message: '', meta: { phaseSwap: true } },
+      { code: 'PHASE_SWAP' as VerdictCode, message: '', meta: { phaseSwap: true } },
     ]);
     expect(hl.tsCurrent.A).toBe('warning');
     expect(hl.tnVoltage.A).toBe('warning');
@@ -163,7 +165,7 @@ describe('buildMeterWireHighlights', () => {
 
 describe('buildPhaseAnalysisSummary', () => {
   it('should return OK for all phases when no issues', () => {
-    const verdicts = [{ code: 'OK', message: '' }];
+    const verdicts = [{ code: 'OK' as VerdictCode, message: '' }];
     const hl = buildMeterWireHighlights(verdicts);
     const summary = buildPhaseAnalysisSummary(verdicts, hl);
     expect(summary.phaseA).toBe('OK');
@@ -172,7 +174,7 @@ describe('buildPhaseAnalysisSummary', () => {
   });
 
   it('should mark phase with REV_I', () => {
-    const verdicts = [{ code: 'REV_I', message: '', meta: { revPhase: 'C' } }];
+    const verdicts = [{ code: 'REV_I' as VerdictCode, message: '', meta: { revPhase: 'C' as Phase } }];
     const hl = buildMeterWireHighlights(verdicts);
     const summary = buildPhaseAnalysisSummary(verdicts, hl);
     expect(summary.phaseC).toBe('REV_I');

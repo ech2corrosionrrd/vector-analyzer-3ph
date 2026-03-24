@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import { Download, Info, Zap, Loader2 } from 'lucide-react';
+import { Download, Info, Zap, Loader2, History, Save, Database, BookOpen } from 'lucide-react';
 
 import { captureReportElementToPngDataUrl } from './utils/captureReportPng';
 
@@ -13,6 +13,9 @@ import { RightTriangleDiagram } from './components/diagrams/RightTriangleDiagram
 import { PhasorPolygonDiagram } from './components/diagrams/PhasorPolygonDiagram';
 import { OssannaDiagram } from './components/diagrams/OssannaDiagram';
 import { SmithChartDiagram } from './components/diagrams/SmithChartDiagram';
+import { ArchiveModal } from './components/ArchiveModal';
+import { AboutModal } from './components/AboutModal';
+import { LearningCenter } from './components/LearningCenter';
 import {
   calculatePhasePower,
   getPhaseSequence,
@@ -94,35 +97,139 @@ const useIsMobile = () => {
     typeof window !== 'undefined' && window.innerWidth < 768
   );
   
-  useState(() => {
-    if (typeof window === 'undefined') return undefined;
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     const handler = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handler);
     return () => window.removeEventListener('resize', handler);
-  });
+  }, []);
 
   return isMobile;
 };
 
+const STORAGE_KEY_CLASSIC = 'vector_analyzer_classic_state_v1';
+const STORAGE_KEY_ARCHIVE = 'vector_analyzer_archive_v1';
+const STORAGE_KEY_VAF = 'vector_analyzer_vaf_state_v1';
+
 const App = () => {
   const [appSection, setAppSection] = useState('classic'); // 'classic' | 'vaf'
-  const [angleMode, setAngleMode] = useState('relative'); // 'relative' or 'phi'
-  const [scheme, setScheme] = useState('star');
-  const [voltageType, setVoltageType] = useState('phase');
-  const [diagramMode, setDiagramMode] = useState('combined');
+
+  // Persistence Loading for Classic Mode
+  const savedClassicState = useMemo(() => {
+    try {
+      const item = localStorage.getItem(STORAGE_KEY_CLASSIC);
+      return item ? JSON.parse(item) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const [angleMode, setAngleMode] = useState(savedClassicState?.angleMode ?? 'relative');
+  const [scheme, setScheme] = useState(savedClassicState?.scheme ?? 'star');
+  const [voltageType, setVoltageType] = useState(savedClassicState?.voltageType ?? 'phase');
+  const [diagramMode, setDiagramMode] = useState(savedClassicState?.diagramMode ?? 'combined');
   const [trianglePhase, setTrianglePhase] = useState('A');
   const [pdfCaptureOpen, setPdfCaptureOpen] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
-  const [frequency, setFrequency] = useState('50');
-  const [loadType, setLoadType] = useState('mixed');
+  const [frequency, setFrequency] = useState(savedClassicState?.frequency ?? '50');
+  const [loadType, setLoadType] = useState(savedClassicState?.loadType ?? 'mixed');
   
-  const [measurements, setMeasurements] = useState({
+  const [measurements, setMeasurements] = useState(savedClassicState?.measurements ?? {
     A: { U: 220, I: 5, angleU: 0, angleI: 330, phi: 30 },
     B: { U: 220, I: 5, angleU: 240, angleI: 210, phi: 30 },
     C: { U: 220, I: 5, angleU: 120, angleI: 90, phi: 30 }
   });
 
+  const [vafDataForExport, setVafDataForExport] = useState<any>(null);
+  const [vafKey, setVafKey] = useState(0); // To force remount
+
+  // Archive State
+  const [archiveItems, setArchiveItems] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_ARCHIVE);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isLearningOpen, setIsLearningOpen] = useState(false);
+  const [saveHint, setSaveHint] = useState('');
+
+  // Persistence Saving for Classic Mode
+  useEffect(() => {
+    const state = { angleMode, scheme, voltageType, diagramMode, frequency, loadType, measurements };
+    localStorage.setItem(STORAGE_KEY_CLASSIC, JSON.stringify(state));
+  }, [angleMode, scheme, voltageType, diagramMode, frequency, loadType, measurements]);
+
+  // Archive Persistence
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_ARCHIVE, JSON.stringify(archiveItems));
+  }, [archiveItems]);
+
   const isMobile = useIsMobile();
+
+  const handleSaveToArchive = useCallback(() => {
+    const timestamp = new Date().toISOString();
+    let title = '';
+    let data = {};
+
+    if (appSection === 'vaf') {
+      title = vafDataForExport?.objectName || 'Замір ВАФ';
+      if (vafDataForExport?.feeder) title += ` (${vafDataForExport.feeder})`;
+      data = { ...vafDataForExport };
+    } else {
+      title = `Classic ${new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}`;
+      data = { angleMode, scheme, voltageType, diagramMode, frequency, loadType, measurements };
+    }
+
+    const newItem = {
+      id: timestamp,
+      title,
+      date: new Date().toLocaleDateString('uk-UA'),
+      mode: appSection,
+      data
+    };
+
+    setArchiveItems(prev => [...prev, newItem]);
+    setSaveHint('Збережено!');
+    setTimeout(() => setSaveHint(''), 2500);
+  }, [appSection, vafDataForExport, angleMode, scheme, voltageType, diagramMode, frequency, loadType, measurements]);
+
+  const handleLoadFromArchive = (item: any) => {
+    if (!window.confirm(`Завантажити дані «${item.title}»? Поточні зміни буде втрачено.`)) return;
+    
+    setAppSection(item.mode);
+    if (item.mode === 'classic') {
+      const d = item.data;
+      setAngleMode(d.angleMode);
+      setScheme(d.scheme);
+      setVoltageType(d.voltageType);
+      setDiagramMode(d.diagramMode);
+      setFrequency(d.frequency);
+      setLoadType(d.loadType);
+      setMeasurements(d.measurements);
+    } else {
+      localStorage.setItem(STORAGE_KEY_VAF, JSON.stringify(item.data));
+      setVafDataForExport(item.data);
+      setVafKey(prev => prev + 1); // Remount VafAnalyzer to pick up new state
+    }
+    setIsArchiveOpen(false);
+  };
+
+  const handleDeleteFromArchive = (id: string) => {
+    if (window.confirm('Видалити цей запис?')) {
+      setArchiveItems(prev => prev.filter(x => x.id !== id));
+    }
+  };
+
+  const handleExportArchive = () => {
+    const blob = new Blob([JSON.stringify(archiveItems, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `VectorAnalyzer_Archive_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+  };
 
   // Derived results
   const results = useMemo(() => {
@@ -168,7 +275,7 @@ const App = () => {
     const diags: any[] = [];
 
     // Check polarity (angle approx 180)
-    ['A', 'B', 'C'].forEach(p => {
+    (['A', 'B', 'C'] as const).forEach(p => {
       const phi = angleMode === 'relative' ? (measurements[p].angleU - measurements[p].angleI) : measurements[p].phi;
       const normalizedPhi = ((phi % 360) + 360) % 360;
       if (Math.abs(normalizedPhi - 180) < 20) {
@@ -217,7 +324,10 @@ const App = () => {
     });
   }, [diagramMode, measurements, angleMode, scheme, voltageType, results]);
 
-  const renderDiagram = (vectorSize = 960) => {
+  const renderDiagram = (vectorSize = 960, isVaf = false) => {
+    if (isVaf) {
+       return <VectorDiagram vectors={vafDataForExport?.vectors || []} size={vectorSize} />;
+    }
     if (RADIAL_MODES.has(diagramMode)) {
       return <VectorDiagram vectors={vectors} size={vectorSize} />;
     }
@@ -316,7 +426,8 @@ const App = () => {
   };
 
   const exportPDF = async () => {
-    if (!document.getElementById('pdf-report-export'))  {
+    const reportId = 'pdf-report-export';
+    if (!document.getElementById(reportId))  {
       alert('Не знайдено макету звіту. Спробуйте оновити сторінку.');
       return;
     }
@@ -327,11 +438,11 @@ const App = () => {
     flushSync(() => setPdfCaptureOpen(true));
     await new Promise((r) =>
       requestAnimationFrame(() =>
-        requestAnimationFrame(() => setTimeout(r, 320)),
+        requestAnimationFrame(() => setTimeout(r, 450)),
       ),
     );
 
-    const element = document.getElementById('pdf-report-export');
+    const element = document.getElementById(reportId);
     if (!element) {
       alert('Макет звіту тимчасово недоступний. Спробуйте ще раз.');
       flushSync(() => setPdfCaptureOpen(false));
@@ -339,65 +450,38 @@ const App = () => {
     }
 
     try {
-      const w = element.offsetWidth;
-      const h = element.offsetHeight;
-      if (!w || !h) {
-        throw new Error('Макет звіту має нульовий розмір.');
-      }
-
       const dataUrl = await captureReportElementToPngDataUrl(element);
-
       const { jsPDF } = await import('jspdf');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
-      const margin = 15;
+      const margin = 10;
       const usableW = pageW - 2 * margin;
       const usableH = pageH - 2 * margin;
 
       const imgProps = pdf.getImageProperties(dataUrl);
       const iw = imgProps.width;
       const ih = imgProps.height;
-      if (!iw || !ih || !Number.isFinite(iw) || !Number.isFinite(ih)) {
-        throw new Error('Некоректні розміри зображення для PDF.');
-      }
-
       const imgScale = Math.min(usableW / iw, usableH / ih);
       let imgWmm = iw * imgScale;
       let imgHmm = ih * imgScale;
 
-      if (!Number.isFinite(imgWmm) || !Number.isFinite(imgHmm) || imgWmm <= 0 || imgHmm <= 0) {
-        throw new Error('Некоректні розміри зображення у PDF (масштаб не вдалося обчислити).');
-      }
-
-      if (imgHmm > usableH) {
-        imgHmm = usableH;
-        imgWmm = (iw * imgHmm) / ih;
-      }
-      if (imgWmm > usableW) {
-        imgWmm = usableW;
-        imgHmm = (ih * imgWmm) / iw;
-      }
-
-      const imgX = margin + Math.max(0, (usableW - imgWmm) / 2);
-      const imgY = margin + Math.max(0, (usableH - imgHmm) / 2);
+      const imgX = margin + (usableW - imgWmm) / 2;
+      const imgY = margin;
 
       pdf.addImage(dataUrl, 'PNG', imgX, imgY, imgWmm, imgHmm);
-
-      pdf.save('VectorAnalyzer_Report.pdf');
+      const filename = appSection === 'vaf' 
+        ? `VAF_Report_${vafDataForExport?.objectName || 'Export'}.pdf`
+        : 'VectorAnalyzer_Report.pdf';
+      pdf.save(filename);
     } catch (e) {
       console.error('PDF Export error:', e);
-      alert(
-        e instanceof Error && e.message
-          ? e.message
-          : 'Не вдалося згенерувати PDF. Будь ласка, спробуйте ще раз.',
-      );
+      alert('Не вдалося згенерувати PDF. Будь ласка, спробуйте ще раз.');
     } finally {
       flushSync(() => { setPdfCaptureOpen(false); setPdfBusy(false); });
     }
   };
 
-  /** Mobile-friendly diagram mode selector */
   const renderDiagramModeSelector = () => {
     if (isMobile) {
       return (
@@ -465,6 +549,42 @@ const App = () => {
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsLearningOpen(true)}
+              className="hidden md:flex items-center gap-2 bg-blue-600/10 text-blue-400 border border-blue-500/20 px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-600/20 transition-all"
+              title="Академія (Навчання)"
+            >
+              <BookOpen size={16} />
+              <span className="hidden lg:inline">Академія</span>
+            </button>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setIsArchiveOpen(true)}
+                className="p-2 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition-all"
+                title="Архів"
+              >
+                <History size={20} />
+              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={handleSaveToArchive}
+                  className="p-2 text-slate-400 hover:text-green-400 hover:bg-slate-800 rounded-lg transition-all"
+                  title="Зберегти в архів"
+                >
+                  <Save size={20} />
+                </button>
+                {saveHint && (
+                  <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-[10px] px-2 py-1 rounded shadow-lg animate-bounce whitespace-nowrap z-[60]">
+                    {saveHint}
+                  </span>
+                )}
+              </div>
+            </div>
+
             <div className="flex rounded-lg border border-slate-700 overflow-hidden">
               <button
                 type="button"
@@ -489,25 +609,32 @@ const App = () => {
                 {isMobile ? 'ВАФ' : 'ВАФ-Аналізатор'}
               </button>
             </div>
-            {appSection === 'classic' ? (
-              <button
-                type="button"
-                onClick={exportPDF}
-                data-export-ignore
-                className="flex items-center gap-1 sm:gap-2 bg-slate-800 hover:bg-slate-700 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 cursor-pointer"
-              >
-                {pdfBusy
-                  ? <><Loader2 size={16} className="animate-spin" /> <span className="hidden sm:inline">Генерація…</span></>
-                  : <><Download size={16} /> <span className="hidden sm:inline">Експорт</span> PDF</>}
-              </button>
-            ) : null}
+            
+            <button
+              type="button"
+              onClick={exportPDF}
+              data-export-ignore
+              className="flex items-center gap-1 sm:gap-2 bg-slate-800 hover:bg-slate-700 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95 cursor-pointer border border-slate-600 shadow-sm"
+            >
+              {pdfBusy
+                ? <><Loader2 size={16} className="animate-spin" /> <span className="hidden sm:inline">Генерація…</span></>
+                : <><Download size={16} /> <span className="hidden sm:inline">Експорт</span> PDF</>}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAboutOpen(true)}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
+              title="Про програму"
+            >
+              <Info size={20} />
+            </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-screen-2xl mx-auto px-3 sm:px-4 py-4 sm:py-8 w-full" id="main-report">
         {appSection === 'vaf' ? (
-          <VafAnalyzer />
+          <VafAnalyzer key={vafKey} onExportDataChange={setVafDataForExport} />
         ) : (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 sm:gap-8">
           {/* Left Side: Inputs */}
@@ -586,8 +713,8 @@ const App = () => {
         <p className="text-xs sm:text-sm">VectorAnalyzer 3Ph © 2026 • Розроблено для трифазних мереж України</p>
       </footer>
 
-      {appSection === 'classic' ? (
       <PdfExportDocument
+        mode={appSection as any}
         forCapture={pdfCaptureOpen}
         measurements={measurements}
         angleMode={angleMode}
@@ -599,10 +726,26 @@ const App = () => {
         diagramModeLabel={diagramModeLabelLookup(diagramMode)}
         diagramNote={DIAGRAM_NOTES[diagramMode]}
         trianglePhase={trianglePhase}
+        vafData={vafDataForExport}
       >
-        {renderDiagram(580)}
+        {renderDiagram(580, appSection === 'vaf')}
       </PdfExportDocument>
-      ) : null}
+      <ArchiveModal
+        isOpen={isArchiveOpen}
+        onClose={() => setIsArchiveOpen(false)}
+        items={archiveItems}
+        onLoad={handleLoadFromArchive}
+        onDelete={handleDeleteFromArchive}
+        onExportAll={handleExportArchive}
+      />
+      <AboutModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+      />
+      <LearningCenter
+        isOpen={isLearningOpen}
+        onClose={() => setIsLearningOpen(false)}
+      />
     </div>
   );
 };

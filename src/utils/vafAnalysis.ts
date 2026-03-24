@@ -24,6 +24,7 @@ import {
   AnalysisVerdict,
   VafPowerResults,
   VerdictCode,
+  CtPhasePair,
 } from '../types/vaf';
 
 const PHASES: Phase[] = ['A', 'B', 'C'];
@@ -78,7 +79,8 @@ export const computeTransformationK = (ratios: TransformerRatios): number => {
 export const computeCurrentPhasors = (
   scheme: ConnectionScheme,
   Iabc: VafPhaseValues,
-  phiDeg: VafPhaseValues
+  phiDeg: VafPhaseValues,
+  ctPhasePair: CtPhasePair = 'AC'
 ): Record<Phase, { re: number; im: number }> => {
   const rect = {} as Record<Phase, { re: number; im: number }>;
   for (const p of PHASES) {
@@ -90,8 +92,16 @@ export const computeCurrentPhasors = (
   }
 
   if (scheme === '2_TS') {
-    const sum = rectAdd(rect.A, rect.C);
-    rect.B = { re: -sum.re, im: -sum.im };
+    if (ctPhasePair === 'AC') {
+      const sum = rectAdd(rect.A, rect.C);
+      rect.B = { re: -sum.re, im: -sum.im };
+    } else if (ctPhasePair === 'AB') {
+      const sum = rectAdd(rect.A, rect.B);
+      rect.C = { re: -sum.re, im: -sum.im };
+    } else if (ctPhasePair === 'BC') {
+      const sum = rectAdd(rect.B, rect.C);
+      rect.A = { re: -sum.re, im: -sum.im };
+    }
   }
 
   return rect;
@@ -102,11 +112,13 @@ export const computeCurrentPhasors = (
  */
 export const buildVafDiagramVectors = ({
   scheme,
+  ctPhasePair = 'AC',
   Uabc,
   Iabc,
   currentPhasorsRect,
 }: {
   scheme: ConnectionScheme;
+  ctPhasePair?: CtPhasePair;
   Uabc: VafPhaseValues;
   Iabc: VafPhaseValues;
   currentPhasorsRect: Record<Phase, { re: number; im: number }>;
@@ -134,11 +146,23 @@ export const buildVafDiagramVectors = ({
     const polar = polarFromRect(rect.re, rect.im);
     const mag = polar.mag;
     const ang = polar.deg;
-    const Im = scheme === '2_TS' && p === 'B' ? null : Math.max(0, Number(Iabc[p]) || 0);
-    const caption =
-      scheme === '2_TS' && p === 'B'
-        ? `розрах. ∠${ang.toFixed(1)}° (2 ТС)`
-        : `${(Im ?? mag).toFixed(2)} А ∠${ang.toFixed(1)}°`;
+    const Im =
+      scheme === '2_TS' &&
+      ((ctPhasePair === 'AC' && p === 'B') ||
+        (ctPhasePair === 'AB' && p === 'C') ||
+        (ctPhasePair === 'BC' && p === 'A'))
+        ? null
+        : Math.max(0, Number(Iabc[p]) || 0);
+
+    const isCalculated =
+      scheme === '2_TS' &&
+      ((ctPhasePair === 'AC' && p === 'B') ||
+        (ctPhasePair === 'AB' && p === 'C') ||
+        (ctPhasePair === 'BC' && p === 'A'));
+
+    const caption = isCalculated
+      ? `розрах. ∠${ang.toFixed(1)}° (2 ТС)`
+      : `${(Im ?? mag).toFixed(2)} А ∠${ang.toFixed(1)}°`;
     v.push({
       phase: p,
       magnitude: mag,
@@ -178,6 +202,7 @@ export function runVafDiagnostics({
   phiToleranceDeg = VAF_PHI_OK_TOLERANCE_DEG,
   phaseSwapRatioThreshold = VAF_PHASE_SWAP_RATIO_THRESHOLD,
   twoTsIaIcAngleTolDeg = VAF_2TS_IA_IC_ANGLE_TOL_DEG,
+  ctPhasePair = 'AC',
 }: {
   scheme: ConnectionScheme;
   Iabc: VafPhaseValues;
@@ -186,6 +211,7 @@ export function runVafDiagnostics({
   phiToleranceDeg?: number;
   phaseSwapRatioThreshold?: number;
   twoTsIaIcAngleTolDeg?: number;
+  ctPhasePair?: CtPhasePair;
 }): AnalysisVerdict[] {
   const out: AnalysisVerdict[] = [];
 
@@ -268,17 +294,19 @@ export function runVafDiagnostics({
       });
     }
   } else {
-    const iaPol = polarFromRect(currentPhasorsRect.A.re, currentPhasorsRect.A.im);
-    const icPol = polarFromRect(currentPhasorsRect.C.re, currentPhasorsRect.C.im);
-    const iaMag = iaPol.mag;
-    const icMag = icPol.mag;
-    if (iaMag >= 0.02 * iMax && icMag >= 0.02 * iMax) {
-      const dAc = smallestAngleBetweenDirectionsDeg(iaPol.deg, icPol.deg);
-      const distToNom = Math.min(Math.abs(dAc - 120), Math.abs(dAc - 60));
+    // Check angle between the two measured CTs
+    const p1 = ctPhasePair[0] as Phase;
+    const p2 = ctPhasePair[1] as Phase;
+    const ph1 = polarFromRect(currentPhasorsRect[p1].re, currentPhasorsRect[p1].im);
+    const ph2 = polarFromRect(currentPhasorsRect[p2].re, currentPhasorsRect[p2].im);
+    
+    if (ph1.mag >= 0.02 * iMax && ph2.mag >= 0.02 * iMax) {
+      const delta = smallestAngleBetweenDirectionsDeg(ph1.deg, ph2.deg);
+      const distToNom = Math.min(Math.abs(delta - 120), Math.abs(delta - 60));
       if (distToNom > twoTsIaIcAngleTolDeg) {
         out.push({
           code: 'ASYM',
-          message: `Увага (2 ТС): кут між векторами I_A та I_C ≈ ${dAc.toFixed(0)}° (очікувано близько 120° або 60° залежно від полярності). Можлива помилка збору «зірки» або ТС. Модулі I_A та I_C на 10 кВ часто не збігаються — орієнтуйтеся на кут.`,
+          message: `Увага (2 ТС): кут між векторами I_${p1} та I_${p2} ≈ ${delta.toFixed(0)}° (очікувано близько 120° або 60° залежно від полярності). Можлива помилка збору «зірки» або ТС.`,
           meta: { asym: true, scheme: '2_TS' },
         });
       }

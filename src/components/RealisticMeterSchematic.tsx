@@ -1,15 +1,13 @@
 import { useState, useMemo } from 'react';
 import { PHASE_COLORS } from '../utils/constants';
 
-// ─── Types ──────────────────────────────────────────────────────────
+import { VafPhaseValues, CtPhasePair, Phase, ConnectionScheme as Scheme, VerdictCode } from '../types/vaf';
 
-type Phase = 'A' | 'B' | 'C';
-type Scheme = '3_TS' | '2_TS';
 type VoltageLevel = '0.4' | '6-10' | '35' | '110';
 type ViewMode = 'ACTUAL' | 'EXPECTED';
 
 interface Verdict {
-  code: string;
+  code: VerdictCode;
   message: string;
   meta?: {
     revPhase?: Phase;
@@ -23,6 +21,10 @@ interface RealisticMeterSchematicProps {
   scheme: Scheme;
   voltage: VoltageLevel;
   verdicts: Verdict[];
+  Uabc?: VafPhaseValues;
+  Iabc?: VafPhaseValues;
+  phiDeg?: VafPhaseValues;
+  ctPhasePair?: CtPhasePair;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────
@@ -78,9 +80,14 @@ function PrimaryBus({ phase, y }: { phase: Phase; y: number }) {
   );
 }
 
-function CTSymbol({ x, y, phase, dimmed, scheme }: { x: number; y: number; phase: Phase; dimmed?: boolean; scheme: Scheme }) {
+function CTSymbol({ x, y, phase, dimmed, scheme, ctPhasePair, I, phi }: { x: number; y: number; phase: Phase; dimmed?: boolean; scheme: Scheme; ctPhasePair?: CtPhasePair; I?: number; phi?: number }) {
   const col = WIRE_COLORS[phase];
-  const isDimmed = dimmed || (scheme === '2_TS' && phase === 'B');
+  const isExcluded = scheme === '2_TS' && (
+    (ctPhasePair === 'AC' && phase === 'B') ||
+    (ctPhasePair === 'AB' && phase === 'C') ||
+    (ctPhasePair === 'BC' && phase === 'A')
+  );
+  const isDimmed = dimmed || isExcluded;
   const opa = isDimmed ? 0.3 : 1;
 
   return (
@@ -102,16 +109,30 @@ function CTSymbol({ x, y, phase, dimmed, scheme }: { x: number; y: number; phase
       <text x={x - 15} y={y + CT_H + 14} fill="#94a3b8" fontSize="7" textAnchor="middle">И1</text>
       <circle cx={x + 15} cy={y + CT_H + 2} r={3} fill="#64748b" />
       <text x={x + 15} y={y + CT_H + 14} fill="#94a3b8" fontSize="7" textAnchor="middle">И2</text>
+      
+      {/* Live Data Overlay */}
+      {!isDimmed && I !== undefined && (
+        <g transform={`translate(${x + 42}, ${y + 25})`}>
+          <rect x={0} y={0} width={45} height={24} rx={4} fill="#020617" stroke={col} strokeWidth={1} />
+          <text x={22.5} y={10} textAnchor="middle" fill="#f8fafc" fontSize="8" fontWeight="bold">
+            {I.toFixed(2)} А
+          </text>
+          <text x={22.5} y={19} textAnchor="middle" fill="#94a3b8" fontSize="7">
+            ∠{phi?.toFixed(0)}°
+          </text>
+        </g>
+      )}
+
       {isDimmed && (
         <text x={x} y={y + CT_H + 28} fill="#475569" fontSize="8" textAnchor="middle" fontStyle="italic">
-          (немає)
+          {isExcluded ? '(пропуск)' : '(немає)'}
         </text>
       )}
     </g>
   );
 }
 
-function VTSymbol({ x, y, phase, direct, label }: { x: number; y: number; phase: Phase; direct: boolean; label?: string }) {
+function VTSymbol({ x, y, phase, direct, label, U }: { x: number; y: number; phase: Phase; direct: boolean; label?: string; U?: number }) {
   const col = WIRE_COLORS[phase];
 
   if (direct) {
@@ -138,11 +159,21 @@ function VTSymbol({ x, y, phase, direct, label }: { x: number; y: number; phase:
       {label && (
         <text x={x} y={y - 5} textAnchor="middle" fill="#38bdf8" fontSize="8">{label}</text>
       )}
+
+      {/* Live Voltage Data */}
+      {U !== undefined && (
+        <g transform={`translate(${x + 36}, ${y + 5})`}>
+          <rect x={0} y={0} width={40} height={14} rx={3} fill="#020617" stroke={col} strokeWidth={1} />
+          <text x={20} y={10} textAnchor="middle" fill="#f8fafc" fontSize="8" fontWeight="bold">
+            {U.toFixed(1)} В
+          </text>
+        </g>
+      )}
     </g>
   );
 }
 
-function Terminal({ cx: x, cy: y, n, highlight }: { cx: number; cy: number; n: number; highlight?: string }) {
+function Terminal({ cx: x, cy: y, n, highlight, val }: { cx: number; cy: number; n: number; highlight?: string; val?: string }) {
   const borderCol = highlight === 'error' ? '#ef4444'
     : highlight === 'warning' ? '#f59e0b'
     : '#64748b';
@@ -154,10 +185,21 @@ function Terminal({ cx: x, cy: y, n, highlight }: { cx: number; cy: number; n: n
       {/* Screw cross */}
       <line x1={x - 4} y1={y - 4} x2={x + 4} y2={y + 4} stroke="#475569" strokeWidth={1} />
       <line x1={x + 4} y1={y - 4} x2={x - 4} y2={y + 4} stroke="#475569" strokeWidth={1} />
+      
+      {/* Dynamic Value Tooltip (Bubble) */}
+      {val && (
+        <g transform={`translate(${x - 20}, ${y - 32})`}>
+          <rect x={0} y={0} width={40} height={14} rx={3} fill="#020617" stroke={borderCol} strokeWidth={1} opacity={0.9} />
+          <text x={20} y={9.5} textAnchor="middle" fill="#f1f5f9" fontSize="7" fontWeight="bold">
+            {val}
+          </text>
+        </g>
+      )}
+
       <text x={x} y={y + TERM_R + 13} textAnchor="middle" fill="#94a3b8" fontSize="9" fontWeight="600">
         {n}
       </text>
-      <title>Клема {n}</title>
+      <title>Клема {n} {val ? `: ${val}` : ''}</title>
     </g>
   );
 }
@@ -216,9 +258,27 @@ function ErrorX({ cx: x, cy: y }: { cx: number; cy: number }) {
   );
 }
 
+function PhaseLed({ x, y, status }: { x: number; y: number; status: 'ok' | 'warning' | 'error' }) {
+  const color = status === 'error' ? '#ef4444' : status === 'warning' ? '#f59e0b' : '#22c55e';
+  return (
+    <g>
+      <circle cx={x} cy={y} r={4} fill={color} filter="url(#led-glow)" />
+      <circle cx={x} cy={y} r={2} fill="#fff" opacity={0.5} />
+    </g>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────────────
 
-export function RealisticMeterSchematic({ scheme, voltage, verdicts }: RealisticMeterSchematicProps) {
+export function RealisticMeterSchematic({ 
+  scheme, 
+  voltage, 
+  verdicts, 
+  Uabc, 
+  Iabc, 
+  phiDeg, 
+  ctPhasePair = 'AC' 
+}: RealisticMeterSchematicProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('ACTUAL');
 
   const is3 = scheme === '3_TS';
@@ -248,6 +308,25 @@ export function RealisticMeterSchematic({ scheme, voltage, verdicts }: Realistic
     if (!phaseForTerm) return undefined;
     if (revPhases.has(phaseForTerm) && (n === 1 || n === 3 || n === 4 || n === 6 || n === 7 || n === 9)) return 'error';
     if (hasPhaseSwap && (n === 2 || n === 5 || n === 8)) return 'warning';
+    return undefined;
+  };
+
+  const getTermValue = (n: number): string | undefined => {
+    if (!Uabc || !Iabc) return undefined;
+    if (scheme === '2_TS') {
+      const isExcluded = (ctPhasePair === 'AC' && n >= 4 && n <= 6) ||
+                        (ctPhasePair === 'AB' && n >= 7 && n <= 9) ||
+                        (ctPhasePair === 'BC' && n >= 1 && n <= 3);
+      if (isExcluded) return undefined;
+    }
+    if (n === 1 || n === 3 || n === 4 || n === 6 || n === 7 || n === 9) {
+      const ph: Phase = n <= 3 ? 'A' : n <= 6 ? 'B' : 'C';
+      return `${Iabc[ph]?.toFixed(2)}А`;
+    }
+    if (n === 2 || n === 5 || n === 8) {
+      const ph: Phase = n <= 3 ? 'A' : n <= 6 ? 'B' : 'C';
+      return `${Uabc[ph]?.toFixed(0)}В`;
+    }
     return undefined;
   };
 
@@ -506,6 +585,10 @@ export function RealisticMeterSchematic({ scheme, voltage, verdicts }: Realistic
             <marker id="correction-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
               <polygon points="0 0, 10 3.5, 0 7" fill="#22c55e" />
             </marker>
+            <filter id="led-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="2" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
           </defs>
 
           {/* ─── A. Primary Bus Zone (y ≈ 55) ─── */}
@@ -531,9 +614,9 @@ export function RealisticMeterSchematic({ scheme, voltage, verdicts }: Realistic
               />
             );
           })}
-          <CTSymbol x={PHASE_X.A} y={CT_Y} phase="A" scheme={scheme} />
-          <CTSymbol x={PHASE_X.B} y={CT_Y} phase="B" scheme={scheme} />
-          <CTSymbol x={PHASE_X.C} y={CT_Y} phase="C" scheme={scheme} />
+          <CTSymbol x={PHASE_X.A} y={CT_Y} phase="A" scheme={scheme} ctPhasePair={ctPhasePair} I={Iabc?.A} phi={phiDeg?.A} />
+          <CTSymbol x={PHASE_X.B} y={CT_Y} phase="B" scheme={scheme} ctPhasePair={ctPhasePair} I={Iabc?.B} phi={phiDeg?.B} />
+          <CTSymbol x={PHASE_X.C} y={CT_Y} phase="C" scheme={scheme} ctPhasePair={ctPhasePair} I={Iabc?.C} phi={phiDeg?.C} />
 
           {/* ─── VT Zone (y ≈ 260) ─── */}
           {!direct04 && (
@@ -543,15 +626,15 @@ export function RealisticMeterSchematic({ scheme, voltage, verdicts }: Realistic
           )}
           {is3 ? (
             <>
-              <VTSymbol x={PHASE_X.A} y={VT_Y} phase="A" direct={direct04} />
-              <VTSymbol x={PHASE_X.B} y={VT_Y} phase="B" direct={direct04} />
-              <VTSymbol x={PHASE_X.C} y={VT_Y} phase="C" direct={direct04} />
+              <VTSymbol x={PHASE_X.A} y={VT_Y} phase="A" direct={direct04} U={Uabc?.A} />
+              <VTSymbol x={PHASE_X.B} y={VT_Y} phase="B" direct={direct04} U={Uabc?.B} />
+              <VTSymbol x={PHASE_X.C} y={VT_Y} phase="C" direct={direct04} U={Uabc?.C} />
             </>
           ) : (
             <>
-              <VTSymbol x={PHASE_X.A} y={VT_Y} phase="A" direct={direct04} label="U AB" />
-              <VTSymbol x={PHASE_X.B} y={VT_Y} phase="B" direct={direct04} label="(спільна)" />
-              <VTSymbol x={PHASE_X.C} y={VT_Y} phase="C" direct={direct04} label="U CB" />
+              <VTSymbol x={PHASE_X.A} y={VT_Y} phase="A" direct={direct04} label="U AB" U={Uabc?.A} />
+              <VTSymbol x={PHASE_X.B} y={VT_Y} phase="B" direct={direct04} label="(спільна)" U={Uabc?.B} />
+              <VTSymbol x={PHASE_X.C} y={VT_Y} phase="C" direct={direct04} label="U CB" U={Uabc?.C} />
               {/* V-connection lines between VTs */}
               {!direct04 && (
                 <>
@@ -576,16 +659,22 @@ export function RealisticMeterSchematic({ scheme, voltage, verdicts }: Realistic
             Клемна колодка лічильника
           </text>
 
-          {/* Phase labels above terminal groups */}
-          <text x={(termX(1) + termX(3)) / 2} y={TERM_Y - 18} textAnchor="middle" fill={WIRE_COLORS.A} fontSize="9" fontWeight="700">
-            Фаза A
-          </text>
-          <text x={(termX(4) + termX(6)) / 2} y={TERM_Y - 18} textAnchor="middle" fill={WIRE_COLORS.B} fontSize="9" fontWeight="700">
-            Фаза B
-          </text>
-          <text x={(termX(7) + termX(9)) / 2} y={TERM_Y - 18} textAnchor="middle" fill={WIRE_COLORS.C} fontSize="9" fontWeight="700">
-            Фаза C
-          </text>
+          {/* Phase labels + LEDs */}
+          {(['A', 'B', 'C'] as const).map(ph => {
+            const termBase = ph === 'A' ? 1 : ph === 'B' ? 4 : 7;
+            const x = (termX(termBase) + termX(termBase + 2)) / 2;
+            const verdict = verdicts.find(v => v.meta?.revPhase === ph || (v.code === 'PHASE_SWAP' && (ph==='A' || ph==='B' || ph==='C')))?.code || 'OK';
+            const status = verdict === 'OK' ? 'ok' : (verdict === 'REV_I' || verdict === 'WRONG_U' ? 'error' : 'warning');
+            
+            return (
+              <g key={`leg-${ph}`}>
+                <text x={x} y={TERM_Y - 18} textAnchor="middle" fill={WIRE_COLORS[ph]} fontSize="9" fontWeight="700">
+                  Фаза {ph}
+                </text>
+                <PhaseLed x={x + 28} y={TERM_Y - 21} status={status} />
+              </g>
+            );
+          })}
           <text x={(termX(10) + termX(11)) / 2} y={TERM_Y - 18} textAnchor="middle" fill={WIRE_COLORS.N} fontSize="9" fontWeight="700">
             N
           </text>
@@ -612,7 +701,7 @@ export function RealisticMeterSchematic({ scheme, voltage, verdicts }: Realistic
 
           {/* Terminals */}
           {Array.from({ length: 11 }, (_, i) => i + 1).map(n => (
-            <Terminal key={n} cx={termX(n)} cy={TERM_Y} n={n} highlight={termHighlight(n)} />
+            <Terminal key={n} cx={termX(n)} cy={TERM_Y} n={n} highlight={termHighlight(n)} val={getTermValue(n)} />
           ))}
 
           {/* ─── Wires ─── */}

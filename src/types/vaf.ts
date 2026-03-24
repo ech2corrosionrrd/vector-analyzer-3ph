@@ -7,6 +7,9 @@
 /** Connection scheme for current transformers */
 export type ConnectionScheme = '2_TS' | '3_TS';
 
+/** Phases involved in 2-TS (Aron) connection */
+export type CtPhasePair = 'AC' | 'AB' | 'BC';
+
 /** Angle mode for classic analyzer */
 export type AngleMode = 'relative' | 'phi';
 
