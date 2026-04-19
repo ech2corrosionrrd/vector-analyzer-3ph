@@ -47,7 +47,6 @@ export function RightTriangleDiagram({
   const showV = valueV ?? legV;
   const showHyp = valueHyp ?? hyp;
   const maxSide = Math.max(a, Math.abs(b), c, 1e-9);
-  const W = 420;
   const pxPerUnit = 300 / maxSide;
   const ax = a * pxPerUnit;
   const bx = Math.abs(b) * pxPerUnit;

@@ -1,16 +1,26 @@
 import { useMemo } from 'react';
 import { degToRad, toPhaseVoltage, formatScalarForLabel, formatAngleForLabel } from '../../utils/calculations';
+import type { Measurements, Scheme, VoltageType } from '../../types/vaf';
 
-const colors = { A: '#facc15', B: '#22c55e', C: '#ef4444' };
+const colors: Record<string, string> = { A: '#facc15', B: '#22c55e', C: '#ef4444' };
+
+interface PhasorPolygonProps {
+  measurements: Measurements;
+  scheme: Scheme;
+  voltageType: VoltageType;
+  size?: number;
+}
 
 /** Замкнений ланцюг фазних напруг «голова в хвіст»: U_A + U_B + U_C. За симетрії векторна сума → 0. */
-export function PhasorPolygonDiagram({ measurements, scheme, voltageType, size = 720 }) {
+export function PhasorPolygonDiagram({ measurements, scheme, voltageType, size = 720 }: PhasorPolygonProps) {
   const { segments, closure, view } = useMemo(() => {
-    const phases = ['A', 'B', 'C'];
+    type PolygonPoint = { x: number; y: number; phase?: 'A' | 'B' | 'C'; U?: number; ang?: number };
+    type PolygonSegment = { from: PolygonPoint; to: PolygonPoint; phase: 'A' | 'B' | 'C'; color: string; U: number; ang: number };
+    const phases = ['A', 'B', 'C'] as const;
     let x = 0;
     let y = 0;
-    const pts = [{ x: 0, y: 0 }];
-    const segs = [];
+    const pts: PolygonPoint[] = [{ x: 0, y: 0 }];
+    const segs: PolygonSegment[] = [];
 
     const mags = phases.map((p) => toPhaseVoltage(measurements[p].U, voltageType, scheme));
     const maxU = Math.max(...mags, 1e-6);
@@ -65,7 +75,7 @@ export function PhasorPolygonDiagram({ measurements, scheme, voltageType, size =
         style={{ maxHeight: Math.min(size, 900) }}
       >
         <defs>
-          {['A', 'B', 'C'].map((p) => (
+          {(['A', 'B', 'C'] as const).map((p) => (
             <marker
               key={p}
               id={`poly-arrow-${p}`}

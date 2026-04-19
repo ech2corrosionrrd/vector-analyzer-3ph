@@ -28,7 +28,22 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
         cleanupOutdatedCaches: true,
       },
-      manifest: false,
+      manifest: {
+        name: 'VectorAnalyzer 3Ph',
+        short_name: 'VectorAnalyzer',
+        description: 'Аналіз трифазних електричних мереж — векторні діаграми та ВАФ-аналізатор',
+        theme_color: '#0f172a',
+        background_color: '#0f172a',
+        display: 'standalone',
+        orientation: 'portrait-primary',
+        start_url: '/vector-analyzer-3ph/',
+        scope: '/vector-analyzer-3ph/',
+        lang: 'uk',
+        icons: [
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+      },
     })
   ],
 })

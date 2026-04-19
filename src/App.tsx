@@ -1,31 +1,57 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
-import { flushSync } from 'react-dom';
-import { Download, Info, Zap, Loader2, History, Save, Database, BookOpen } from 'lucide-react';
+import { useState, useMemo, useCallback, lazy, Suspense } from 'react';
+import { Download, Info, Zap, Loader2, History, Save, BookOpen } from 'lucide-react';
 
-import { captureReportElementToPngDataUrl } from './utils/captureReportPng';
-
-import VectorDiagram from './components/VectorDiagram';
-import { VafAnalyzer } from './components/VafAnalyzer';
-import InputForm from './components/InputForm';
-import ResultsDisplay from './components/ResultsDisplay';
-import { PdfExportDocument } from './components/PdfExportDocument';
+import VectorDiagram from './components/core/VectorDiagram';
+import { VafAnalyzer } from './components/vaf/VafAnalyzer';
+import InputForm from './components/ui/InputForm';
+import ResultsDisplay from './components/ui/ResultsDisplay';
+import { PdfExportDocument } from './components/core/PdfExportDocument';
 import { RightTriangleDiagram } from './components/diagrams/RightTriangleDiagram';
 import { PhasorPolygonDiagram } from './components/diagrams/PhasorPolygonDiagram';
 import { OssannaDiagram } from './components/diagrams/OssannaDiagram';
 import { SmithChartDiagram } from './components/diagrams/SmithChartDiagram';
-import { ArchiveModal } from './components/ArchiveModal';
-import { AboutModal } from './components/AboutModal';
-import { ReloadPrompt } from './components/ReloadPrompt';
-import { LearningCenter } from './components/LearningCenter';
+import { ArchiveModal } from './components/ui/ArchiveModal';
+import { AboutModal } from './components/ui/AboutModal';
+import { ReloadPrompt } from './components/ui/ReloadPrompt';
+import { ConfirmDialog } from './components/ui/ConfirmDialog';
+
+import { useClassicState } from './hooks/useClassicState';
+import { useArchive } from './hooks/useArchive';
+import { usePdfExport } from './hooks/usePdfExport';
+import { useIsMobile } from './hooks/useIsMobile';
+
 import {
   calculatePhasePower,
-  getPhaseSequence,
   toPhaseVoltage,
   degToRad,
   phasePhiDeg,
   formatScalarForLabel,
+  measurementsToPhiDeg,
 } from './utils/calculations';
 import { buildDiagramVectors } from './utils/diagramVectors';
+import { runVafDiagnostics, computeCurrentPhasors } from './utils/vafAnalysis';
+
+import type {
+  VafExportData,
+  ArchiveItem,
+  AppSection,
+  LoadType,
+  EnergyFlow,
+  CtPhasePair,
+  CtModel,
+  VtModel,
+  MeterElements,
+  DiagnosticItem,
+  AnalysisResults,
+  Phase,
+  PhaseSequence,
+  PhasePowerResult,
+} from './types/vaf';
+
+// Lazy-loaded heavy component
+const LearningCenter = lazy(() =>
+  import('./components/core/LearningCenter').then((m) => ({ default: m.LearningCenter })),
+);
 
 const RADIAL_MODES = new Set(['combined', 'voltage', 'current', 'line', 'power', 'sequence']);
 
@@ -63,13 +89,11 @@ const DIAGRAM_NOTES: Record<string, string> = {
   combined:
     'Довжини векторів I на крузі зменшені. Підписи: дійсні U, I та кути. U на діаграмі в масштабі Uф; у підписі — введене значення (Uф/Uл).',
   voltage: 'Зіркоподібна (променева) діаграма: фазні напруги Uф з умовної нейтралі — типовий вигляд симетричної зірки (класичні ~120°).',
-  current:
-    'Промені струмів фаз; довжини нормовані до max|I|, підписи — дійсні А та кути.',
+  current: 'Промені струмів фаз; довжини нормовані до max|I|, підписи — дійсні А та кути.',
   line: 'Лінійні U_AB, U_BC, U_CA як різниця фазорів (модель зірки).',
   power:
     'Сумарні P, Q, S з центру: довжини нормовані до max(|ΣP|,|ΣQ|,ΣS) — порівняльна «променева» форма (поряд із трикутником потужностей).',
-  sequence:
-    'Симетричні складові Фортеск\'ю напруг: V₀, V₁, V₂.',
+  sequence: 'Симетричні складові Фортеск\'ю напруг: V₀, V₁, V₂.',
   polygon:
     'Замкнений багатокутник: фазні напруги послідовно «голова в хвіст». За повної симетрії векторна сума U_A+U_B+U_C → 0 (контур замикається).',
   powerTriangle:
@@ -84,7 +108,7 @@ const DIAGRAM_NOTES: Record<string, string> = {
     'Фрагмент діаграми Сміта: нормовані опори на лініях передачі / узгодження (РЧ; для силових КЗЛН часто інші номограми).',
 };
 
-const diagramModeLabelLookup = (mode: string) => {
+const diagramModeLabelLookup = (mode: string): string => {
   for (const g of DIAGRAM_GROUPS) {
     const m = g.modes.find((x) => x.id === mode);
     if (m) return m.label;
@@ -92,160 +116,101 @@ const diagramModeLabelLookup = (mode: string) => {
   return mode;
 };
 
-/** Hook to detect mobile viewport */
-const useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(() => 
-    typeof window !== 'undefined' && window.innerWidth < 768
-  );
-  
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handler = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
-  }, []);
+interface ConfirmState {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  danger?: boolean;
+  onConfirm: () => void;
+}
 
-  return isMobile;
+const CONFIRM_CLOSED: ConfirmState = {
+  isOpen: false,
+  title: '',
+  message: '',
+  onConfirm: () => {},
 };
 
-const STORAGE_KEY_CLASSIC = 'vector_analyzer_classic_state_v1';
-const STORAGE_KEY_ARCHIVE = 'vector_analyzer_archive_v1';
-const STORAGE_KEY_VAF = 'vector_analyzer_vaf_state_v1';
-
 const App = () => {
-  const [appSection, setAppSection] = useState('classic'); // 'classic' | 'vaf'
-
-  // Persistence Loading for Classic Mode
-  const savedClassicState = useMemo(() => {
-    try {
-      const item = localStorage.getItem(STORAGE_KEY_CLASSIC);
-      return item ? JSON.parse(item) : null;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const [angleMode, setAngleMode] = useState(savedClassicState?.angleMode ?? 'relative');
-  const [scheme, setScheme] = useState(savedClassicState?.scheme ?? 'star');
-  const [voltageType, setVoltageType] = useState(savedClassicState?.voltageType ?? 'phase');
-  const [diagramMode, setDiagramMode] = useState(savedClassicState?.diagramMode ?? 'combined');
-  const [trianglePhase, setTrianglePhase] = useState('A');
-  const [pdfCaptureOpen, setPdfCaptureOpen] = useState(false);
-  const [pdfBusy, setPdfBusy] = useState(false);
-  const [frequency, setFrequency] = useState(savedClassicState?.frequency ?? '50');
-  const [loadType, setLoadType] = useState(savedClassicState?.loadType ?? 'mixed');
-  
-  const [measurements, setMeasurements] = useState(savedClassicState?.measurements ?? {
-    A: { U: 220, I: 5, angleU: 0, angleI: 330, phi: 30 },
-    B: { U: 220, I: 5, angleU: 240, angleI: 210, phi: 30 },
-    C: { U: 220, I: 5, angleU: 120, angleI: 90, phi: 30 }
-  });
-
-  const [vafDataForExport, setVafDataForExport] = useState<any>(null);
-  const [vafKey, setVafKey] = useState(0); // To force remount
-
-  // Archive State
-  const [archiveItems, setArchiveItems] = useState<any[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_ARCHIVE);
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
-  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
+  const [appSection, setAppSection] = useState<AppSection>('classic');
+  const [vafDataForExport, setVafDataForExport] = useState<VafExportData | null>(null);
+  const [vafKey, setVafKey] = useState(0);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isLearningOpen, setIsLearningOpen] = useState(false);
-  const [saveHint, setSaveHint] = useState('');
-
-  // Persistence Saving for Classic Mode
-  useEffect(() => {
-    const state = { angleMode, scheme, voltageType, diagramMode, frequency, loadType, measurements };
-    localStorage.setItem(STORAGE_KEY_CLASSIC, JSON.stringify(state));
-  }, [angleMode, scheme, voltageType, diagramMode, frequency, loadType, measurements]);
-
-  // Archive Persistence
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_ARCHIVE, JSON.stringify(archiveItems));
-  }, [archiveItems]);
+  const [confirm, setConfirm] = useState<ConfirmState>(CONFIRM_CLOSED);
 
   const isMobile = useIsMobile();
 
-  const handleSaveToArchive = useCallback(() => {
-    const timestamp = new Date().toISOString();
-    let title = '';
-    let data = {};
+  // Classic state hook
+  const classic = useClassicState();
+  const {
+    angleMode, setAngleMode,
+    scheme, setScheme,
+    voltageType, setVoltageType,
+    diagramMode, setDiagramMode,
+    frequency, setFrequency,
+    loadType, setLoadType,
+    measurements, setMeasurements,
+    voltageLevel, setVoltageLevel,
+    IPrim, setIPrim,
+    ISec, setISec,
+    UPrim, setUPrim,
+    USec, setUSec,
+    hasNeutral, setHasNeutral,
+    trianglePhase, setTrianglePhase,
+    restoreState: restoreClassicState,
+  } = classic;
 
-    if (appSection === 'vaf') {
-      title = vafDataForExport?.objectName || 'Замір ВАФ';
-      if (vafDataForExport?.feeder) title += ` (${vafDataForExport.feeder})`;
-      data = { ...vafDataForExport };
-    } else {
-      title = `Classic ${new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}`;
-      data = { angleMode, scheme, voltageType, diagramMode, frequency, loadType, measurements };
-    }
+  // Metadata state for VAF / Schematic (Unified Measurement)
+  const [objectName, setObjectName] = useState('');
+  const [feeder, setFeeder] = useState('');
+  const [meterType, setMeterType] = useState('');
+  const [meterNumber, setMeterNumber] = useState('');
+  const [transformerTs, setTransformerTs] = useState('');
+  const [transformerTn, setTransformerTn] = useState('');
+  const [dateStr, setDateStr] = useState(new Date().toLocaleDateString('uk-UA'));
+  const [energyFlow, setEnergyFlow] = useState<EnergyFlow>('consumption');
+  const [ctPhasePair, setCtPhasePair] = useState<CtPhasePair>('AC');
+  const [ctModel, setCtModel] = useState<CtModel>('TOL');
+  const [vtModel, setVtModel] = useState<VtModel>('3x1ph');
+  const [meterElements, setMeterElements] = useState<MeterElements>(3);
 
-    const newItem = {
-      id: timestamp,
-      title,
-      date: new Date().toLocaleDateString('uk-UA'),
-      mode: appSection,
-      data
-    };
+  // Archive hook
+  const {
+    archiveItems,
+    isArchiveOpen,
+    setIsArchiveOpen,
+    saveHint,
+    handleSaveToArchive,
+    handleLoadFromArchive,
+    handleDeleteFromArchive,
+    handleExportArchive,
+  } = useArchive();
 
-    setArchiveItems(prev => [...prev, newItem]);
-    setSaveHint('Збережено!');
-    setTimeout(() => setSaveHint(''), 2500);
-  }, [appSection, vafDataForExport, angleMode, scheme, voltageType, diagramMode, frequency, loadType, measurements]);
+  // PDF export hook
+  const { pdfCaptureOpen, pdfBusy, exportPDF } = usePdfExport(appSection, vafDataForExport);
 
-  const handleLoadFromArchive = (item: any) => {
-    if (!window.confirm(`Завантажити дані «${item.title}»? Поточні зміни буде втрачено.`)) return;
-    
-    setAppSection(item.mode);
-    if (item.mode === 'classic') {
-      const d = item.data;
-      setAngleMode(d.angleMode);
-      setScheme(d.scheme);
-      setVoltageType(d.voltageType);
-      setDiagramMode(d.diagramMode);
-      setFrequency(d.frequency);
-      setLoadType(d.loadType);
-      setMeasurements(d.measurements);
-    } else {
-      localStorage.setItem(STORAGE_KEY_VAF, JSON.stringify(item.data));
-      setVafDataForExport(item.data);
-      setVafKey(prev => prev + 1); // Remount VafAnalyzer to pick up new state
-    }
-    setIsArchiveOpen(false);
-  };
-
-  const handleDeleteFromArchive = (id: string) => {
-    if (window.confirm('Видалити цей запис?')) {
-      setArchiveItems(prev => prev.filter(x => x.id !== id));
-    }
-  };
-
-  const handleExportArchive = () => {
-    const blob = new Blob([JSON.stringify(archiveItems, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `VectorAnalyzer_Archive_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-  };
+  // Confirm dialog helpers
+  const openConfirm = useCallback((cfg: Omit<ConfirmState, 'isOpen'>) => {
+    setConfirm({ ...cfg, isOpen: true });
+  }, []);
+  const closeConfirm = useCallback(() => setConfirm(CONFIRM_CLOSED), []);
 
   // Derived results
-  const results = useMemo(() => {
+  const results = useMemo<AnalysisResults>(() => {
     try {
-      const phaseResults: Record<string, any> = {};
+      const phaseResults: Record<Phase, PhasePowerResult> = {
+        A: { P: 0, Q: 0, S: 0, cosPhi: 1 },
+        B: { P: 0, Q: 0, S: 0, cosPhi: 1 },
+        C: { P: 0, Q: 0, S: 0, cosPhi: 1 },
+      };
       let totalP = 0, totalQ = 0, totalS = 0;
 
-      (['A', 'B', 'C'] as const).forEach(p => {
-        let phiValue = 0;
-        if (angleMode === 'relative') {
-          phiValue = measurements[p].angleU - measurements[p].angleI;
-        } else {
-          phiValue = measurements[p].phi;
-        }
-
+      (['A', 'B', 'C'] as const).forEach((p) => {
+        const phiValue = angleMode === 'relative'
+          ? measurements[p].angleU - measurements[p].angleI
+          : measurements[p].phi;
         const Uphase = toPhaseVoltage(measurements[p].U, voltageType, scheme);
         const res = calculatePhasePower(Uphase, measurements[p].I, phiValue);
         phaseResults[p] = res;
@@ -254,65 +219,60 @@ const App = () => {
         totalS += res.S;
       });
 
-      const sequence = getPhaseSequence(
-        measurements.A.angleU, 
-        measurements.B.angleU, 
-        measurements.C.angleU
-      );
+      const diffAB = ((measurements.B.angleU - measurements.A.angleU) % 360 + 360) % 360;
+      const sequence: PhaseSequence = diffAB > 180 && diffAB < 300 ? 'Direct' : 'Reverse';
 
-      return { 
-        phaseResults, 
-        total: { P: totalP, Q: totalQ, S: totalS }, 
-        sequence 
-      };
+      return { phaseResults, total: { P: totalP, Q: totalQ, S: totalS }, sequence };
     } catch (e) {
-      console.error("Calculation error:", e);
-      return { phaseResults: { A: {P:0,Q:0,S:0,cosPhi:1}, B: {P:0,Q:0,S:0,cosPhi:1}, C: {P:0,Q:0,S:0,cosPhi:1} }, total: {P:0,Q:0,S:0}, sequence: 'Unknown' };
+      console.error('Calculation error:', e);
+      return {
+        phaseResults: {
+          A: { P: 0, Q: 0, S: 0, cosPhi: 1 },
+          B: { P: 0, Q: 0, S: 0, cosPhi: 1 },
+          C: { P: 0, Q: 0, S: 0, cosPhi: 1 },
+        },
+        total: { P: 0, Q: 0, S: 0 },
+        sequence: 'Unknown',
+      };
     }
   }, [measurements, angleMode, scheme, voltageType]);
 
-  // Diagnostics
-  const diagnostics = useMemo(() => {
-    const diags: any[] = [];
+  // Diagnostics Integration
+  const diagnostics = useMemo<DiagnosticItem[]>(() => {
+    const diags: DiagnosticItem[] = [];
 
-    // Check polarity (angle approx 180)
-    (['A', 'B', 'C'] as const).forEach(p => {
-      const phi = angleMode === 'relative' ? (measurements[p].angleU - measurements[p].angleI) : measurements[p].phi;
-      const normalizedPhi = ((phi % 360) + 360) % 360;
-      if (Math.abs(normalizedPhi - 180) < 20) {
+    const phiEffective = measurementsToPhiDeg(measurements, angleMode);
+
+    const currentPhasorsRect = computeCurrentPhasors(
+      scheme === 'aron' ? '2_TS' : '3_TS',
+      { A: measurements.A.I, B: measurements.B.I, C: measurements.C.I },
+      phiEffective,
+      ctPhasePair,
+      energyFlow
+    );
+    
+    const vafVerdicts = runVafDiagnostics({
+      scheme: scheme === 'aron' ? '2_TS' : '3_TS',
+      Iabc: { A: measurements.A.I, B: measurements.B.I, C: measurements.C.I },
+      phiDeg: phiEffective,
+      currentPhasorsRect,
+      energyFlow,
+      ctPhasePair,
+    });
+
+    vafVerdicts.forEach(v => {
+      if (v.code !== 'OK') {
         diags.push({
-          phase: p,
-          severity: 'error',
-          title: `Перевернута полярність струму (Фаза ${p})`,
-          message: 'Трансформатор струму підключено навпаки або переплутані проводи вторинної обмотки.'
+          phase: v.meta?.revPhase || v.meta?.currentPhase,
+          severity: v.code === 'REV_I' || v.code === 'PHASE_SWAP' || v.code === 'WRONG_U' ? 'error' : 'warning',
+          title: v.message.split('.')[0] + '.',
+          message: v.message,
         });
       }
     });
 
-    // Check sequence
-    if (results.sequence === 'Reverse') {
-      diags.push({
-        severity: 'warning',
-        title: 'Зворотна послідовність фаз (A-C-B)',
-        message: 'Увага: Двигуни у цій мережі будуть обертатися у зворотному напрямку.'
-      });
-    }
-
-    // Check angle imbalance (B and C relative to A)
-    const norm = (a: number) => ((a % 360) + 360) % 360;
-    const diffAB = norm(measurements.B.angleU - measurements.A.angleU);
-    const diffAC = norm(measurements.C.angleU - measurements.A.angleU);
-    
-    if (Math.abs(diffAB - 240) > 15 || Math.abs(diffAC - 120) > 15) {
-      diags.push({
-        severity: 'error',
-        title: 'Перекіс напруги або помилка фазування',
-        message: 'Кути між фазними напругами суттєво відхиляються від 120°.'
-      });
-    }
-
     return diags;
-  }, [measurements, results, angleMode]);
+  }, [measurements, angleMode, scheme, ctPhasePair, energyFlow]);
 
   const vectors = useMemo(() => {
     if (!RADIAL_MODES.has(diagramMode)) return [];
@@ -327,7 +287,7 @@ const App = () => {
 
   const renderDiagram = (vectorSize = 960, isVaf = false) => {
     if (isVaf) {
-       return <VectorDiagram vectors={vafDataForExport?.vectors || []} size={vectorSize} />;
+      return <VectorDiagram vectors={vafDataForExport?.vectors || []} size={vectorSize} />;
     }
     if (RADIAL_MODES.has(diagramMode)) {
       return <VectorDiagram vectors={vectors} size={vectorSize} />;
@@ -363,7 +323,7 @@ const App = () => {
           unitV="вар"
           unitHyp="В·А"
           phiDeg={phi}
-          subNote={`Сума фазних Sᵢ = ${formatScalarForLabel(results.total.S)} В·А. Якщо є перекіс фаз, S′ = √(P²+Q²) не збігається з ΣSᵢ точно.`}
+          subNote={`Сума фазних Sᵢ = ${formatScalarForLabel(results.total.S)} В·А.`}
         />
       );
     }
@@ -387,7 +347,7 @@ const App = () => {
           unitV="В"
           unitHyp="В"
           phiDeg={phi}
-          subNote="U_R — активна (у фазі зі струмом) складова напруги; U_X — реактивна (індуктивна/ємнісна)."
+          subNote="U_R — активна складова напруги; U_X — реактивна."
         />
       );
     }
@@ -413,7 +373,7 @@ const App = () => {
           unitV="Ом"
           unitHyp="Ом"
           phiDeg={phi}
-          subNote={`Z = Uф/I; φ такий самий, як у трикутнику напруг і потужностей для цієї фази.`}
+          subNote={`Z = Uф/I.`}
         />
       );
     }
@@ -426,62 +386,83 @@ const App = () => {
     return <VectorDiagram vectors={vectors} size={vectorSize} />;
   };
 
-  const exportPDF = async () => {
-    const reportId = 'pdf-report-export';
-    if (!document.getElementById(reportId))  {
-      alert('Не знайдено макету звіту. Спробуйте оновити сторінку.');
-      return;
-    }
+  const onLoadFromArchive = useCallback(
+    (item: ArchiveItem) => {
+      openConfirm({
+        title: 'Завантажити запис?',
+        message: `Завантажити дані «${item.title}»? Поточні зміни буде втрачено.`,
+        confirmLabel: 'Завантажити',
+        onConfirm: () => {
+          closeConfirm();
+          const d = item.data;
+          setObjectName(d.objectName ?? '');
+          setFeeder(d.feeder ?? '');
+          setMeterType(d.meterType ?? '');
+          setMeterNumber(d.meterNumber ?? '');
+          setTransformerTs(d.transformerTs ?? '');
+          setTransformerTn(d.transformerTn ?? '');
+          setDateStr(d.dateStr ?? '');
+          setEnergyFlow(d.energyFlow ?? 'consumption');
+          setCtModel(d.ctModel ?? 'TOL');
+          setVtModel(d.vtModel ?? '3x1ph');
+          setMeterElements(d.meterElements ?? 3);
+          setCtPhasePair(d.ctPhasePair ?? 'AC');
 
-    if (pdfBusy) return;
-    setPdfBusy(true);
+          restoreClassicState({
+            angleMode: d.angleMode,
+            scheme: d.scheme === '2_TS' ? 'aron' : 'star',
+            voltageType: d.voltageType,
+            diagramMode: d.diagramMode,
+            frequency: d.frequency,
+            loadType: d.loadType,
+            measurements: d.measurements,
+            voltageLevel: d.voltageLevel,
+            IPrim: d.ratios.IPrim,
+            ISec: d.ratios.ISec,
+            UPrim: d.ratios.UPrim,
+            USec: d.ratios.USec,
+            hasNeutral: d.hasNeutral,
+          });
+          setVafKey((prev) => prev + 1);
+        },
+      });
+    },
+    [openConfirm, closeConfirm, restoreClassicState],
+  );
 
-    flushSync(() => setPdfCaptureOpen(true));
-    await new Promise((r) =>
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => setTimeout(r, 450)),
-      ),
-    );
+  const onDeleteFromArchive = useCallback(
+    (id: string) => {
+      openConfirm({
+        title: 'Видалити запис?',
+        message: 'Цю дію неможливо скасувати.',
+        confirmLabel: 'Видалити',
+        danger: true,
+        onConfirm: () => {
+          handleDeleteFromArchive(id, closeConfirm);
+        },
+      });
+    },
+    [openConfirm, closeConfirm, handleDeleteFromArchive],
+  );
 
-    const element = document.getElementById(reportId);
-    if (!element) {
-      alert('Макет звіту тимчасово недоступний. Спробуйте ще раз.');
-      flushSync(() => setPdfCaptureOpen(false));
-      return;
-    }
-
-    try {
-      const dataUrl = await captureReportElementToPngDataUrl(element);
-      const { jsPDF } = await import('jspdf');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const margin = 10;
-      const usableW = pageW - 2 * margin;
-      const usableH = pageH - 2 * margin;
-
-      const imgProps = pdf.getImageProperties(dataUrl);
-      const iw = imgProps.width;
-      const ih = imgProps.height;
-      const imgScale = Math.min(usableW / iw, usableH / ih);
-      let imgWmm = iw * imgScale;
-      let imgHmm = ih * imgScale;
-
-      const imgX = margin + (usableW - imgWmm) / 2;
-      const imgY = margin;
-
-      pdf.addImage(dataUrl, 'PNG', imgX, imgY, imgWmm, imgHmm);
-      const filename = appSection === 'vaf' 
-        ? `VAF_Report_${vafDataForExport?.objectName || 'Export'}.pdf`
-        : 'VectorAnalyzer_Report.pdf';
-      pdf.save(filename);
-    } catch (e) {
-      console.error('PDF Export error:', e);
-      alert('Не вдалося згенерувати PDF. Будь ласка, спробуйте ще раз.');
-    } finally {
-      flushSync(() => { setPdfCaptureOpen(false); setPdfBusy(false); });
-    }
-  };
+  const onSaveToArchive = useCallback(() => {
+    handleSaveToArchive({
+      data: {
+        objectName, feeder, meterType, meterNumber, transformerTs, transformerTn, dateStr,
+        voltageLevel, hasNeutral, scheme: scheme === 'aron' ? '2_TS' : '3_TS',
+        ratios: { IPrim, ISec, UPrim, USec },
+        angleMode, voltageType, diagramMode, frequency, loadType: loadType as LoadType,
+        energyFlow, ctModel, vtModel, ctPhasePair, meterElements,
+        measurements,
+      },
+    });
+  }, [
+    handleSaveToArchive, objectName, feeder, meterType, meterNumber, transformerTs, transformerTn, dateStr,
+    voltageLevel, hasNeutral, scheme, IPrim, ISec, UPrim, USec,
+    angleMode, voltageType, diagramMode, frequency, loadType, energyFlow, ctModel, vtModel, ctPhasePair,
+    meterElements,
+    measurements,
+  ]);
 
   const renderDiagramModeSelector = () => {
     if (isMobile) {
@@ -492,7 +473,7 @@ const App = () => {
           </label>
           <select
             value={diagramMode}
-            onChange={(e) => setDiagramMode(e.target.value)}
+            onChange={(e) => setDiagramMode(e.target.value as typeof diagramMode)}
             className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-200 focus:ring-2 focus:ring-purple-500 transition-all"
           >
             {DIAGRAM_GROUPS.map((group) => (
@@ -519,7 +500,7 @@ const App = () => {
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => setDiagramMode(m.id)}
+                  onClick={() => setDiagramMode(m.id as typeof diagramMode)}
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
                     diagramMode === m.id
                       ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/30'
@@ -572,7 +553,7 @@ const App = () => {
               <div className="relative">
                 <button
                   type="button"
-                  onClick={handleSaveToArchive}
+                  onClick={onSaveToArchive}
                   className="p-2 text-slate-400 hover:text-green-400 hover:bg-slate-800 rounded-lg transition-all"
                   title="Зберегти в архів"
                 >
@@ -590,27 +571,27 @@ const App = () => {
               <button
                 type="button"
                 onClick={() => setAppSection('classic')}
-                className={`px-2 sm:px-3 py-2 text-xs font-semibold transition-colors ${
+                className={`px-2 sm:px-3 py-2 text-xs font-bold transition-colors ${
                   appSection === 'classic'
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-900 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {isMobile ? 'VA' : 'VectorAnalyzer'}
+                {isMobile ? 'ВА' : 'Векторна діаграма'}
               </button>
               <button
                 type="button"
                 onClick={() => setAppSection('vaf')}
-                className={`px-2 sm:px-3 py-2 text-xs font-semibold transition-colors ${
+                className={`px-2 sm:px-3 py-2 text-xs font-bold transition-colors ${
                   appSection === 'vaf'
                     ? 'bg-cyan-600 text-white'
                     : 'bg-slate-900 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {isMobile ? 'ВАФ' : 'ВАФ-Аналізатор'}
+                {isMobile ? 'ВАФ' : 'Схема та Звіт'}
               </button>
             </div>
-            
+
             <button
               type="button"
               onClick={exportPDF}
@@ -635,78 +616,124 @@ const App = () => {
 
       <main className="max-w-screen-2xl mx-auto px-3 sm:px-4 py-4 sm:py-8 w-full" id="main-report">
         {appSection === 'vaf' ? (
-          <VafAnalyzer key={vafKey} onExportDataChange={setVafDataForExport} />
+          <VafAnalyzer 
+            key={vafKey} 
+            onExportDataChange={setVafDataForExport} 
+            linkedMeasurements={measurements}
+            angleMode={angleMode}
+            linkedScheme={scheme === 'aron' ? '2_TS' : '3_TS'}
+            voltageLevel={voltageLevel}
+            ratios={{ IPrim, ISec, UPrim, USec }}
+            hasNeutral={hasNeutral}
+            
+            // Pass shared metadata
+            objectName={objectName} setObjectName={setObjectName}
+            feeder={feeder} setFeeder={setFeeder}
+            meterType={meterType} setMeterType={setMeterType}
+            meterNumber={meterNumber} setMeterNumber={setMeterNumber}
+            transformerTs={transformerTs} setTransformerTs={setTransformerTs}
+            transformerTn={transformerTn} setTransformerTn={setTransformerTn}
+            dateStr={dateStr} setDateStr={setDateStr}
+            energyFlow={energyFlow} setEnergyFlow={setEnergyFlow}
+            ctPhasePair={ctPhasePair} setCtPhasePair={setCtPhasePair}
+            ctModel={ctModel} setCtModel={setCtModel}
+            vtModel={vtModel} setVtModel={setVtModel}
+            meterElements={meterElements} setMeterElements={setMeterElements}
+
+            onLinkedChange={(newMeas, newScheme, newVolts, newRatios, newHasN) => {
+              if (newMeas) setMeasurements(newMeas);
+              if (newScheme) setScheme(newScheme === '2_TS' ? 'aron' : 'star');
+              if (newVolts) setVoltageLevel(newVolts);
+              if (newRatios) {
+                setIPrim(newRatios.IPrim);
+                setISec(newRatios.ISec);
+                setUPrim(newRatios.UPrim);
+                setUSec(newRatios.USec);
+              }
+              if (newHasN !== undefined) setHasNeutral(newHasN);
+            }}
+          />
         ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 sm:gap-8">
-          {/* Left Side: Inputs */}
-          <div className="xl:col-span-5 space-y-6 sm:space-y-8 min-w-0">
-            <section className="animate-fade-in">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
-                  <Info className="text-blue-500" size={24} /> Параметри мережі
-                </h2>
-              </div>
-              <InputForm 
-                measurements={measurements} 
-                setMeasurements={setMeasurements}
-                angleMode={angleMode}
-                setAngleMode={setAngleMode}
-                scheme={scheme}
-                setScheme={setScheme}
-                voltageType={voltageType}
-                setVoltageType={setVoltageType}
-                frequency={frequency}
-                setFrequency={setFrequency}
-                loadType={loadType}
-                setLoadType={setLoadType}
-              />
-            </section>
-
-            <section className="animate-fade-in" style={{ animationDelay: '0.1s' }}>
-              <h2 className="text-xl sm:text-2xl font-bold mb-4 flex items-center gap-2">
-                <Zap className="text-yellow-500" size={24} /> Результати аналізу
-              </h2>
-              <ResultsDisplay results={results} diagnostics={diagnostics} measurements={measurements} scheme={scheme} voltageType={voltageType} />
-            </section>
-          </div>
-
-          {/* Right Side: Diagram */}
-          <div className="xl:col-span-7 min-w-0 w-full">
-            <div className="sticky top-24 animate-fade-in w-full min-w-0" style={{ animationDelay: '0.2s' }}>
-              <h2 className="text-xl sm:text-2xl font-bold mb-3 flex items-center gap-2">
-                <Info className="text-purple-500" size={24} /> Векторні діаграми
-              </h2>
-              {renderDiagramModeSelector()}
-              {(diagramMode === 'voltageTriangle' || diagramMode === 'impedanceTriangle') && (
-                <div className="flex flex-wrap items-center gap-2 mb-3" data-export-ignore>
-                  <span className="text-xs text-slate-500">Фаза трикутника:</span>
-                  {['A', 'B', 'C'].map((ph) => (
-                    <button
-                      key={ph}
-                      type="button"
-                      onClick={() => setTrianglePhase(ph)}
-                      className={`px-2 py-1 rounded text-xs font-bold border ${
-                        trianglePhase === ph
-                          ? 'bg-amber-600/30 border-amber-500 text-amber-200'
-                          : 'bg-slate-800 border-slate-600 text-slate-400'
-                      }`}
-                    >
-                      {ph}
-                    </button>
-                  ))}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 sm:gap-8">
+            <div className="xl:col-span-5 space-y-6 sm:space-y-8 min-w-0">
+              <section className="animate-fade-in">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+                    <Info className="text-blue-500" size={24} /> Параметри мережі
+                  </h2>
                 </div>
-              )}
-              {renderDiagram(isMobile ? 640 : 960)}
-              
-              <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-slate-800/30 rounded-xl border border-slate-800 text-sm text-slate-400">
-                <p className="flex items-start gap-2 italic text-xs sm:text-sm">
-                  <Info size={16} className="mt-0.5 flex-shrink-0" />
-                  {DIAGRAM_NOTES[diagramMode]}
-                </p>
+                <InputForm
+                  measurements={measurements}
+                  setMeasurements={setMeasurements}
+                  angleMode={angleMode}
+                  setAngleMode={setAngleMode}
+                  scheme={scheme}
+                  setScheme={setScheme}
+                  voltageType={voltageType}
+                  setVoltageType={setVoltageType}
+                  frequency={frequency}
+                  setFrequency={setFrequency}
+                  loadType={loadType}
+                  setLoadType={setLoadType}
+                  voltageLevel={voltageLevel}
+                  setVoltageLevel={setVoltageLevel}
+                  IPrim={IPrim}
+                  setIPrim={setIPrim}
+                  ISec={ISec}
+                  setISec={setISec}
+                  UPrim={UPrim}
+                  setUPrim={setUPrim}
+                  USec={USec}
+                  setUSec={setUSec}
+                  hasNeutral={hasNeutral}
+                  setHasNeutral={setHasNeutral}
+                />
+              </section>
+
+              <section className="animate-fade-in" style={{ animationDelay: '0.1s' }}>
+                <h2 className="text-xl sm:text-2xl font-bold mb-4 flex items-center gap-2">
+                  <Zap className="text-yellow-500" size={24} /> Результати аналізу
+                </h2>
+                <ResultsDisplay results={results} diagnostics={diagnostics} measurements={measurements} scheme={scheme} voltageType={voltageType} />
+              </section>
+            </div>
+
+            <div className="xl:col-span-7 min-w-0 w-full">
+              <div className="sticky top-24 animate-fade-in w-full min-w-0" style={{ animationDelay: '0.2s' }}>
+                <h2 className="text-xl sm:text-2xl font-bold mb-3 flex items-center gap-2">
+                  <Info className="text-purple-500" size={24} /> Векторні діаграми
+                </h2>
+                {renderDiagramModeSelector()}
+                {(diagramMode === 'voltageTriangle' || diagramMode === 'impedanceTriangle') && (
+                  <div className="flex flex-wrap items-center gap-2 mb-3" data-export-ignore>
+                    <span className="text-xs text-slate-500">Фаза трикутника:</span>
+                    {(['A', 'B', 'C'] as const).map((ph) => (
+                      <button
+                        key={ph}
+                        type="button"
+                        onClick={() => setTrianglePhase(ph)}
+                        className={`px-2 py-1 rounded text-xs font-bold border ${
+                          trianglePhase === ph
+                            ? 'bg-amber-600/30 border-amber-500 text-amber-200'
+                            : 'bg-slate-800 border-slate-600 text-slate-400'
+                        }`}
+                      >
+                        {ph}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {renderDiagram(isMobile ? 640 : 960)}
+
+                <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-slate-800/30 rounded-xl border border-slate-800 text-sm text-slate-400">
+                  <p className="flex items-start gap-2 italic text-xs sm:text-sm">
+                    <Info size={16} className="mt-0.5 flex-shrink-0" />
+                    {DIAGRAM_NOTES[diagramMode]}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
         )}
       </main>
 
@@ -715,7 +742,7 @@ const App = () => {
       </footer>
 
       <PdfExportDocument
-        mode={appSection as any}
+        mode={appSection}
         forCapture={pdfCaptureOpen}
         measurements={measurements}
         angleMode={angleMode}
@@ -727,27 +754,42 @@ const App = () => {
         diagramModeLabel={diagramModeLabelLookup(diagramMode)}
         diagramNote={DIAGRAM_NOTES[diagramMode]}
         trianglePhase={trianglePhase}
-        vafData={vafDataForExport}
+        vafData={vafDataForExport ?? undefined}
       >
         {renderDiagram(580, appSection === 'vaf')}
       </PdfExportDocument>
+
       <ArchiveModal
         isOpen={isArchiveOpen}
         onClose={() => setIsArchiveOpen(false)}
         items={archiveItems}
-        onLoad={handleLoadFromArchive}
-        onDelete={handleDeleteFromArchive}
+        onLoad={(item) => handleLoadFromArchive(item as ArchiveItem, onLoadFromArchive)}
+        onDelete={onDeleteFromArchive}
         onExportAll={handleExportArchive}
       />
       <AboutModal
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
       />
-      <LearningCenter
-        isOpen={isLearningOpen}
-        onClose={() => setIsLearningOpen(false)}
-      />
+      <Suspense fallback={null}>
+        {isLearningOpen && (
+          <LearningCenter
+            isOpen={isLearningOpen}
+            onClose={() => setIsLearningOpen(false)}
+          />
+        )}
+      </Suspense>
       <ReloadPrompt />
+
+      <ConfirmDialog
+        isOpen={confirm.isOpen}
+        title={confirm.title}
+        message={confirm.message}
+        confirmLabel={confirm.confirmLabel}
+        danger={confirm.danger}
+        onConfirm={confirm.onConfirm}
+        onCancel={closeConfirm}
+      />
     </div>
   );
 };

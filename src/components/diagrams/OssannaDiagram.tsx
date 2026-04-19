@@ -1,14 +1,11 @@
 import { toPhaseVoltage, degToRad } from '../../utils/calculations';
+import type { AngleMode, Measurements, Scheme, VoltageType } from '../../types/vaf';
 
 interface OssannaProps {
-  measurements: {
-    A: { U: number; I: number; angleU: number; angleI: number; phi: number };
-    B: { U: number; I: number; angleU: number; angleI: number; phi: number };
-    C: { U: number; I: number; angleU: number; angleI: number; phi: number };
-  };
-  angleMode: string;
-  scheme: string;
-  voltageType: string;
+  measurements: Measurements;
+  angleMode: AngleMode;
+  scheme: Scheme;
+  voltageType: VoltageType;
 }
 
 /**

@@ -16,7 +16,7 @@ import {
   symmetricalVoltageComponents,
 } from './calculations';
 import { PHASE_COLORS } from './constants';
-import {
+import type {
   Phase,
   ConnectionScheme,
   TransformerRatios,
@@ -25,24 +25,27 @@ import {
   VafPowerResults,
   VerdictCode,
   CtPhasePair,
+  DiagramVectorItem,
+  VtModel,
+  MeterElements,
 } from '../types/vaf';
+import { describeMeteringSetupUk } from './meterConnectionCatalog';
 
 const PHASES: Phase[] = ['A', 'B', 'C'];
 
 /** Поріг |I₂|/|I₁| за струмами — підозра на зворотну послідовність / переплутані фази. */
 export const VAF_PHASE_SWAP_RATIO_THRESHOLD = 0.35;
 
-/**
- * Допуск для вердикту OK по φ (активно-індуктивний режим).
- * У реальних мережах кут часто «плаває» сильніше ±5° — типове поліве значення ±10°.
- */
+/** Допуск для вердикту OK по φ (активно-індуктивний режим).
+ У реальних мережах кут часто «плаває» сильніше ±5° — типове поліве значення ±10°. */
 export const VAF_PHI_OK_TOLERANCE_DEG = 10;
 
-/**
- * Допуск для кута між векторами I_A та I_C у схемі 2 ТС (очікувані орієнтири ~120° або ~60°
- * залежно від полярності / зборки «зірки»).
- */
+/** Допуск для кута між векторами I_A та I_C у схемі 2 ТС */
 export const VAF_2TS_IA_IC_ANGLE_TOL_DEG = 22;
+
+/** Пороги для асиметрії / помилки послідовності фаз (% від I1) */
+export const VAF_ASYM_WARNING_THRESHOLD = 0.15;
+export const VAF_ASYM_ERROR_THRESHOLD = 0.35;
 
 /** Кути напруг (еталон прямої послідовності за ТЗ) */
 export const VAF_VOLTAGE_ANGLES: Record<Phase, number> = { A: 0, B: -120, C: 120 };
@@ -75,19 +78,24 @@ export const computeTransformationK = (ratios: TransformerRatios): number => {
 
 /**
  * Комплексні струми; для 2_ТС I_B = −(I_A + I_C).
+ * Якщо увімкнено режим 'generation', вектор струму зміщується на 180°.
  */
 export const computeCurrentPhasors = (
   scheme: ConnectionScheme,
   Iabc: VafPhaseValues,
   phiDeg: VafPhaseValues,
-  ctPhasePair: CtPhasePair = 'AC'
+  ctPhasePair: CtPhasePair = 'AC',
+  energyFlow: 'consumption' | 'generation' = 'consumption'
 ): Record<Phase, { re: number; im: number }> => {
   const rect = {} as Record<Phase, { re: number; im: number }>;
   for (const p of PHASES) {
     const mag = Math.max(0, Number(Iabc[p]) || 0);
     const phi = Number(phiDeg[p]) || 0;
     const uAng = VAF_VOLTAGE_ANGLES[p];
-    const iAng = uAng - phi;
+    let iAng = uAng - phi;
+    if (energyFlow === 'generation') {
+      iAng += 180;
+    }
     rect[p] = rectFromPolar(mag, iAng);
   }
 
@@ -122,9 +130,9 @@ export const buildVafDiagramVectors = ({
   Uabc: VafPhaseValues;
   Iabc: VafPhaseValues;
   currentPhasorsRect: Record<Phase, { re: number; im: number }>;
-}) => {
+}): DiagramVectorItem[] => {
   const colors = PHASE_COLORS;
-  const v: any[] = [];
+  const v: DiagramVectorItem[] = [];
 
   for (const p of PHASES) {
     const Um = Math.max(0, Number(Uabc[p]) || 0);
@@ -200,24 +208,32 @@ export function runVafDiagnostics({
   phiDeg,
   currentPhasorsRect,
   phiToleranceDeg = VAF_PHI_OK_TOLERANCE_DEG,
-  phaseSwapRatioThreshold = VAF_PHASE_SWAP_RATIO_THRESHOLD,
+  asymWarningRatioThreshold = VAF_ASYM_WARNING_THRESHOLD,
+  phaseSwapRatioThreshold = VAF_ASYM_ERROR_THRESHOLD,
   twoTsIaIcAngleTolDeg = VAF_2TS_IA_IC_ANGLE_TOL_DEG,
   ctPhasePair = 'AC',
+  energyFlow = 'consumption',
 }: {
   scheme: ConnectionScheme;
   Iabc: VafPhaseValues;
   phiDeg: VafPhaseValues;
   currentPhasorsRect: Record<Phase, { re: number; im: number }>;
   phiToleranceDeg?: number;
+  asymWarningRatioThreshold?: number;
   phaseSwapRatioThreshold?: number;
   twoTsIaIcAngleTolDeg?: number;
   ctPhasePair?: CtPhasePair;
+  energyFlow?: 'consumption' | 'generation';
 }): AnalysisVerdict[] {
   const out: AnalysisVerdict[] = [];
 
   const phasesPhi = PHASES.map((p) => {
-    const raw = Number(phiDeg[p]);
-    return { p, phi: Number.isFinite(raw) ? raw : 0 };
+    let raw = Number(phiDeg[p]);
+    if (!Number.isFinite(raw)) raw = 0;
+    if (energyFlow === 'generation') {
+      raw = raw > 0 ? raw - 180 : raw + 180;
+    }
+    return { p, phi: raw };
   });
 
   let hasRev = false;
@@ -240,6 +256,11 @@ export function runVafDiagnostics({
   for (const p of PHASES) {
     const iRect = currentPhasorsRect[p];
     const iPol = polarFromRect(iRect.re, iRect.im);
+    
+    // In 2-TS mode, we don't flag Phase B current-voltage mismatch 
+    // unless there is actually a measured current there.
+    if (scheme === '2_TS' && p === 'B' && (Iabc.B || 0) < 0.05) continue;
+    
     if (iPol.mag < 0.02 * iMax) continue;
     for (const q of PHASES) {
       if (p === q) continue;
@@ -260,23 +281,45 @@ export function runVafDiagnostics({
   const pc = polarFromRect(currentPhasorsRect.C.re, currentPhasorsRect.C.im);
   const iMean = (pa.mag + pb.mag + pc.mag) / 3;
   
-  const seq = symmetricalVoltageComponents(pa.deg, pb.deg, pc.deg);
-  // Note: we only check angles here for sequence, but ideally we'd use complex values.
-  // The symmetricalVoltageComponents in calculations.ts uses (degA, degB, degC).
+  const seq = symmetricalVoltageComponents(
+    { mag: pa.mag, deg: pa.deg },
+    { mag: pb.mag, deg: pb.deg },
+    { mag: pc.mag, deg: pc.deg },
+  );
   
   const v1m = seq.V1.mag;
   const v2m = seq.V2.mag;
   const swapRatio = v1m > 1e-9 ? v2m / v1m : v2m > 1e-6 ? 1 : 0;
 
   let hasPhaseSwap = false;
-  if (iMean > 1e-6 && swapRatio > phaseSwapRatioThreshold) {
-    hasPhaseSwap = true;
-    out.push({
-      code: 'PHASE_SWAP',
-      message:
-        'Помилка: зворотне чергування фаз або переплутані фази (ознака переваги зворотної послідовності за струмами).',
-      meta: { phaseSwap: true },
-    });
+  if (iMean > 1e-6) {
+    if (swapRatio > phaseSwapRatioThreshold) {
+      hasPhaseSwap = true;
+      out.push({
+        code: 'PHASE_SWAP',
+        message: 'Критична помилка: зворотне чергування фаз або переплутані фази (перевага зворотної послідовності струмів).',
+        meta: { phaseSwap: true },
+      });
+    } else if (swapRatio > asymWarningRatioThreshold) {
+      out.push({
+        code: 'ASYM',
+        message: 'Попередження: значна асиметрія або перекіс фаз (|I₂|/|I₁| > 15%).',
+        meta: { asym: true, scheme: '3_TS' },
+      });
+    }
+  }
+
+  // Zero-sequence current (I0) check
+  if (scheme === '3_TS' && iMean > 1e-6) {
+    const i0m = seq.V0.mag;
+    const i0ratio = i0m / iMean;
+    if (i0ratio > 0.1) {
+      out.push({
+        code: 'HIGH_I0',
+        message: `Попередження: високий струм нульової послідовності I₀ = ${i0m.toFixed(2)} А (${(i0ratio * 100).toFixed(1)}%). Можливе замикання на землю або радикальний перекіс.`,
+        meta: { asym: true },
+      });
+    }
   }
 
   if (scheme === '3_TS') {
@@ -285,11 +328,11 @@ export function runVafDiagnostics({
     const ic = Math.max(0, Number(Iabc.C) || 0);
     const mean = (ia + ib + ic) / 3 || 1e-9;
     const spread = (Math.max(ia, ib, ic) - Math.min(ia, ib, ic)) / mean;
-    if (spread > 0.45) {
+    if (spread > 0.65) { // Increased threshold for high load spread
       out.push({
         code: 'ASYM',
         message:
-          'Увага: сильна асиметрія струмів. Перевірте навантаження або справність ТС.',
+          'Увага: сильна асиметрія навантаження (струми фаз значно відрізняються). Перевірте справність ТС або баланс мережі.',
         meta: { asym: true, scheme: '3_TS' },
       });
     }
@@ -335,7 +378,7 @@ export function runVafDiagnostics({
     unique.push(f);
   }
 
-  const order: Record<string, number> = { REV_I: 0, WRONG_U: 1, PHASE_SWAP: 2, ASYM: 3, OK: 4 };
+  const order: Record<string, number> = { REV_I: 0, WRONG_U: 1, PHASE_SWAP: 2, HIGH_I0: 3, ASYM: 4, OK: 5 };
   unique.sort((a, b) => (order[a.code] ?? 9) - (order[b.code] ?? 9));
 
   return unique;
@@ -405,6 +448,7 @@ export function buildPhaseAnalysisSummary(
     );
     if (wuI || wuU) return 'WRONG_U';
     if (verdicts.some((v) => v.code === 'PHASE_SWAP')) return 'PHASE_SWAP';
+    if (verdicts.some((v) => v.code === 'HIGH_I0' || v.code === 'ASYM')) return 'ASYM';
     if (tsCurrent[ph] === 'warning' || tnVoltage[ph] === 'warning') {
       if (verdicts.some((v) => v.code === 'ASYM')) return 'ASYM';
     }
@@ -437,6 +481,7 @@ export function buildVafTextReport({
   dateStr,
   voltageLevel,
   scheme,
+  energyFlow,
   ratios,
   Uabc,
   Iabc,
@@ -444,11 +489,17 @@ export function buildVafTextReport({
   K,
   verdicts,
   power,
+  hasNeutral,
+  ctPhasePair = 'AC',
+  vtModel = '3x1ph',
+  meterElements = 3,
 }: {
   objectName: string;
   dateStr: string;
   voltageLevel: string;
+  hasNeutral: boolean;
   scheme: ConnectionScheme;
+  energyFlow: 'consumption' | 'generation';
   ratios: TransformerRatios;
   Uabc: VafPhaseValues;
   Iabc: VafPhaseValues;
@@ -456,6 +507,9 @@ export function buildVafTextReport({
   K: number;
   verdicts: AnalysisVerdict[];
   power: VafPowerResults;
+  ctPhasePair?: CtPhasePair;
+  vtModel?: VtModel;
+  meterElements?: MeterElements;
 }) {
   const { totalPpri, totalQpri, totalSpri, avgCosPhi } = power || {};
   
@@ -478,7 +532,10 @@ export function buildVafTextReport({
     `Об'єкт: ${objectName || '—'}`,
     `Дата: ${dateStr}`,
     `Рівень напруги, кВ: ${voltageLevel}`,
-    `Схема ТС: ${scheme === '3_TS' ? '3 ТС (повна)' : '2 ТС (Арон)'}`,
+    `Система: ${hasNeutral ? '4-провідна (з нулем)' : '3-провідна (без нуля)'}`,
+    `Схема ТС: ${scheme === '3_TS' ? '3 ТС (повна)' : `2 ТС (Арон, пари фаз ${ctPhasePair[0]}–${ctPhasePair[1]})`}`,
+    `Варіант підключення: ${describeMeteringSetupUk({ voltageLevel, scheme, ctPhasePair, vtModel, meterElements, hasNeutral })}`,
+    `Напрямок енергії: ${energyFlow === 'generation' ? 'Генерація' : 'Споживання'}`,
     `ТС: ${ratios.IPrim}/${ratios.ISec} А; ТН: ${ratios.UPrim}/${ratios.USec} В`,
     `K = (Iперв/Iвтор)·(Uперв/Uвтор) = ${K.toFixed(4)}`,
     '',

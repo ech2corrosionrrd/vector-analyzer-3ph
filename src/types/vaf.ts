@@ -5,10 +5,13 @@
 // ─── Core Types ─────────────────────────────────────────────────────
 
 /** Connection scheme for current transformers */
-export type ConnectionScheme = '2_TS' | '3_TS';
+export type ConnectionScheme = '3_TS' | '2_TS';
 
 /** Phases involved in 2-TS (Aron) connection */
 export type CtPhasePair = 'AC' | 'AB' | 'BC';
+
+/** Meter elements count (3-element 4-wire vs 2-element 3-wire) */
+export type MeterElements = 3 | 2;
 
 /** Angle mode for classic analyzer */
 export type AngleMode = 'relative' | 'phi';
@@ -16,8 +19,15 @@ export type AngleMode = 'relative' | 'phi';
 /** Voltage type */
 export type VoltageType = 'phase' | 'line';
 
+/** Energy flow direction */
+export type EnergyFlow = 'consumption' | 'generation';
+
+/** Physical models */
+export type CtModel = 'TOL' | 'TFZM'; // ТОЛ (Cast), ТФЗМ (Oil tank)
+export type VtModel = '3x1ph' | '1x3ph'; // 3xЗНОЛ (Cast 1-ph), НТМІ (Oil 3-ph)
+
 /** Wiring scheme */
-export type Scheme = 'star' | 'delta';
+export type Scheme = 'star' | 'delta' | 'aron';
 
 /** Phase identifier */
 export type Phase = 'A' | 'B' | 'C';
@@ -85,7 +95,7 @@ export interface PhasePhasorsRect {
 // ─── Analysis Result Types ──────────────────────────────────────────
 
 /** Verdict code from diagnostics */
-export type VerdictCode = 'OK' | 'REV_I' | 'WRONG_U' | 'PHASE_SWAP' | 'ASYM';
+export type VerdictCode = 'OK' | 'REV_I' | 'WRONG_U' | 'PHASE_SWAP' | 'MISSING_I' | 'ASYM' | 'HIGH_I0';
 
 /** Verdict metadata for error visualization */
 export interface VerdictMeta {
@@ -225,4 +235,105 @@ export interface Preset {
   id: string;
   label: string;
   measurements: Measurements | null;
+}
+
+// ─── Archive Types ───────────────────────────────────────────────────
+
+/** A single item in the archive */
+export interface ArchiveItem {
+  id: string;
+  title: string;
+  date: string;
+  data: UnifiedMeasurement;
+}
+
+/** Unified data structure for combined record (Vector + VAF) */
+export interface UnifiedMeasurement {
+  // Metadata (Report info)
+  objectName: string;
+  feeder: string;
+  meterType: string;
+  meterNumber: string;
+  transformerTs: string;
+  transformerTn: string;
+  dateStr: string;
+
+  // Physical Model
+  voltageLevel: string;
+  hasNeutral: boolean;
+  scheme: ConnectionScheme;
+  ratios: TransformerRatios;
+
+  // Settings
+  angleMode: AngleMode;
+  voltageType: VoltageType;
+  diagramMode: DiagramMode;
+  frequency: string;
+  loadType: LoadType;
+  energyFlow: EnergyFlow;
+  ctModel: CtModel;
+  vtModel: VtModel;
+  ctPhasePair: CtPhasePair;
+  meterElements: MeterElements;
+
+  // Measurements
+  measurements: Measurements;
+}
+
+/** Classic mode data stored in the archive */
+export interface ClassicArchiveData {
+  angleMode: AngleMode;
+  scheme: Scheme;
+  voltageType: VoltageType;
+  diagramMode: DiagramMode;
+  frequency: string;
+  loadType: LoadType;
+  measurements: Measurements;
+  voltageLevel: string;
+  IPrim: number;
+  ISec: number;
+  UPrim: number;
+  USec: number;
+  hasNeutral: boolean;
+}
+
+// ─── VAF Export Data ─────────────────────────────────────────────────
+
+/** Typed diagram vector item */
+export interface DiagramVectorItem {
+  phase: string;
+  magnitude: number;
+  angle: number;
+  color: string;
+  strokeWidth: number;
+  isDashed: boolean;
+  label: string;
+  caption?: string;
+}
+
+/** Full data exported from VafAnalyzer for PDF and archive */
+export interface VafExportData {
+  objectName: string;
+  feeder: string;
+  meterType: string;
+  meterNumber: string;
+  transformerTs: string;
+  transformerTn: string;
+  dateStr: string;
+  voltageLevel: string;
+  hasNeutral: boolean;
+  scheme: ConnectionScheme;
+  energyFlow: EnergyFlow;
+  ctPhasePair: CtPhasePair;
+  ctModel?: CtModel;
+  vtModel?: VtModel;
+  meterElements?: MeterElements;
+  ratios: TransformerRatios;
+  Uabc: VafPhaseValues;
+  Iabc: VafPhaseValues;
+  phiDeg: VafPhaseValues;
+  K: number;
+  verdicts: AnalysisVerdict[];
+  power: VafPowerResults;
+  vectors?: DiagramVectorItem[];
 }

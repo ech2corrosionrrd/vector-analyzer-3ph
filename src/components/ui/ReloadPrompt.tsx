@@ -1,4 +1,3 @@
-import React from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { RefreshCw, X } from 'lucide-react'
 
@@ -9,10 +8,10 @@ export function ReloadPrompt() {
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r: ServiceWorkerRegistration | undefined) {
-      console.log('SW Registered: ' + r)
+      if (r) console.log('SW Registered')
     },
-    onRegisterError(error: any) {
-      console.log('SW registration error', error)
+    onRegisterError(error: unknown) {
+      console.error('SW registration error', error)
     },
   })
 
@@ -40,8 +39,10 @@ export function ReloadPrompt() {
                 : 'Додаток збережено в пам\'яті та готовий до роботи без інтернету.'}
             </p>
           </div>
-          <button 
+          <button
+            type="button"
             onClick={close}
+            aria-label="Закрити"
             className="p-2 text-slate-600 hover:text-white hover:bg-slate-800 rounded-xl transition-all"
           >
             <X size={18} />
@@ -50,6 +51,7 @@ export function ReloadPrompt() {
         
         {needRefresh && (
           <button
+            type="button"
             onClick={() => updateServiceWorker(true)}
             className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3 rounded-2xl transition-all shadow-xl shadow-blue-900/40 active:scale-[0.98] uppercase text-[10px] tracking-widest"
           >
@@ -57,16 +59,6 @@ export function ReloadPrompt() {
           </button>
         )}
       </div>
-
-      <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes zoomIn {
-          from { opacity: 0; transform: scale(0.9) translateY(20px); }
-          to { opacity: 1; transform: scale(1) translateY(0); }
-        }
-        .animate-zoom-in {
-          animation: zoomIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-      `}} />
     </div>
   )
 }

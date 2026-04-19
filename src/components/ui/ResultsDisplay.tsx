@@ -4,33 +4,39 @@ import {
   toPhaseVoltage,
   symmetricalVoltageComponents,
   calcAsymmetryCoefficients,
-} from '../utils/calculations';
+} from '../../utils/calculations';
+import type {
+  AnalysisResults,
+  DiagnosticItem,
+  Measurements,
+  Scheme,
+  VoltageType,
+} from '../../types/vaf';
 
-const ResultsDisplay = ({ results, diagnostics, measurements, scheme, voltageType }) => {
+interface ResultsDisplayProps {
+  results: AnalysisResults;
+  diagnostics: DiagnosticItem[];
+  measurements: Measurements;
+  scheme: Scheme;
+  voltageType: VoltageType;
+}
+
+const ResultsDisplay = ({ results, diagnostics, measurements, scheme, voltageType }: ResultsDisplayProps) => {
   const { phaseResults, total, sequence } = results;
 
   const phases = [
     { id: 'A', name: 'Фаза A', color: 'text-yellow-400' },
     { id: 'B', name: 'Фаза B', color: 'text-green-500' },
     { id: 'C', name: 'Фаза C', color: 'text-red-500' }
-  ];
+  ] as const;
 
   const asymmetry = useMemo(() => {
-    if (!measurements) return null;
     try {
-      const uA = {
-        mag: toPhaseVoltage(measurements.A.U, voltageType || 'phase', scheme || 'star'),
-        deg: measurements.A.angleU,
-      };
-      const uB = {
-        mag: toPhaseVoltage(measurements.B.U, voltageType || 'phase', scheme || 'star'),
-        deg: measurements.B.angleU,
-      };
-      const uC = {
-        mag: toPhaseVoltage(measurements.C.U, voltageType || 'phase', scheme || 'star'),
-        deg: measurements.C.angleU,
-      };
-      const sym = symmetricalVoltageComponents(uA, uB, uC);
+      const toPolar = (p: 'A' | 'B' | 'C') => ({
+        mag: toPhaseVoltage(measurements[p].U, voltageType, scheme),
+        deg: measurements[p].angleU,
+      });
+      const sym = symmetricalVoltageComponents(toPolar('A'), toPolar('B'), toPolar('C'));
       return calcAsymmetryCoefficients(sym);
     } catch {
       return null;
@@ -115,7 +121,10 @@ const ResultsDisplay = ({ results, diagnostics, measurements, scheme, voltageTyp
               </div>
             ) : (
               diagnostics.map((diag, i) => (
-                <div key={i} className={`p-3 sm:p-4 rounded-xl border flex items-start gap-3 ${diag.severity === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-orange-500/10 border-orange-500/30 text-orange-400'}`}>
+                <div
+                  key={`${diag.severity}-${diag.phase ?? 'all'}-${i}`}
+                  className={`p-3 sm:p-4 rounded-xl border flex items-start gap-3 ${diag.severity === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-orange-500/10 border-orange-500/30 text-orange-400'}`}
+                >
                   <AlertCircle size={20} className="mt-1 flex-shrink-0" />
                   <div>
                     <div className="font-bold text-sm">{diag.title}</div>

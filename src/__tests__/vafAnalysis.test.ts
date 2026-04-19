@@ -5,21 +5,40 @@ import {
   runVafDiagnostics,
   buildMeterWireHighlights,
   buildPhaseAnalysisSummary,
-  VAF_VOLTAGE_ANGLES,
 } from '../utils/vafAnalysis';
-import { AnalysisVerdict, VerdictCode, Phase } from '../types/vaf';
+import type {
+  AnalysisVerdict,
+  VerdictCode,
+  Phase,
+  ConnectionScheme,
+  VafPhaseValues,
+  EnergyFlow,
+  CtPhasePair,
+} from '../types/vaf';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
 /** Standard symmetric inductive load: φ = 30° per phase */
-const symIabc: Record<string, number> = { A: 5, B: 5, C: 5 };
-const symPhiDeg: Record<string, number> = { A: 30, B: 30, C: 30 };
+const symIabc: VafPhaseValues = { A: 5, B: 5, C: 5 };
+const symPhiDeg: VafPhaseValues = { A: 30, B: 30, C: 30 };
 
-function makeCurrentPhasors(scheme: any, Iabc: any, phiDeg: any) {
+interface DiagnoseOverrides {
+  scheme?: ConnectionScheme;
+  Iabc?: VafPhaseValues;
+  phiDeg?: VafPhaseValues;
+  energyFlow?: EnergyFlow;
+  ctPhasePair?: CtPhasePair;
+}
+
+function makeCurrentPhasors(
+  scheme: ConnectionScheme,
+  Iabc: VafPhaseValues,
+  phiDeg: VafPhaseValues,
+) {
   return computeCurrentPhasors(scheme, Iabc, phiDeg);
 }
 
-function diagnose(overrides: any = {}): AnalysisVerdict[] {
+function diagnose(overrides: DiagnoseOverrides = {}): AnalysisVerdict[] {
   const scheme = overrides.scheme ?? '3_TS';
   const Iabc = overrides.Iabc ?? { ...symIabc };
   const phiDeg = overrides.phiDeg ?? { ...symPhiDeg };

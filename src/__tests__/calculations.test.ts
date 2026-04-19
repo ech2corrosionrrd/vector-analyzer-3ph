@@ -14,7 +14,9 @@ import {
   symmetricalVoltageComponents,
   calcAsymmetryCoefficients,
   polarToCartesian,
+  measurementsToPhiDeg,
 } from '../utils/calculations';
+import type { Measurements } from '../types/vaf';
 
 // ─── Basic Math Utilities ───────────────────────────────────────────
 
@@ -39,6 +41,30 @@ describe('normalizeAngleDeg', () => {
   });
   it('should handle NaN gracefully', () => {
     expect(normalizeAngleDeg(NaN)).toBe(0);
+  });
+});
+
+describe('measurementsToPhiDeg', () => {
+  const sample: Measurements = {
+    A: { U: 220, I: 5, angleU: 0, angleI: 330, phi: 30 },
+    B: { U: 220, I: 5, angleU: 240, angleI: 210, phi: 25 },
+    C: { U: 220, I: 5, angleU: 120, angleI: 90, phi: 28 },
+  };
+
+  it('uses stored φ in phi mode', () => {
+    expect(measurementsToPhiDeg(sample, 'phi')).toEqual({
+      A: 30,
+      B: 25,
+      C: 28,
+    });
+  });
+
+  it('uses angleU − angleI in relative mode', () => {
+    expect(measurementsToPhiDeg(sample, 'relative')).toEqual({
+      A: sample.A.angleU - sample.A.angleI,
+      B: sample.B.angleU - sample.B.angleI,
+      C: sample.C.angleU - sample.C.angleI,
+    });
   });
 });
 

@@ -1,47 +1,30 @@
-import React from 'react';
-import { VafPhaseValues, AnalysisVerdict, VafPowerResults, ConnectionScheme, TransformerRatios, CtPhasePair } from '../types/vaf';
+import type { CSSProperties, ReactNode } from 'react';
+import type {
+  AngleMode,
+  AnalysisResults,
+  AppSection,
+  DiagnosticItem,
+  Measurements,
+  Scheme,
+  VafExportData,
+  VoltageType,
+} from '../../types/vaf';
 
 interface PdfExportDocumentProps {
-  mode?: 'classic' | 'vaf';
-  measurements: {
-    A: { U: number; I: number; angleU: number; angleI: number; phi: number };
-    B: { U: number; I: number; angleU: number; angleI: number; phi: number };
-    C: { U: number; I: number; angleU: number; angleI: number; phi: number };
-  };
-  angleMode: string;
-  scheme: string;
-  voltageType: string;
-  results: {
-    phaseResults: Record<string, any>;
-    total: { P: number; Q: number; S: number };
-    sequence: string;
-  };
-  diagnostics: Array<{ severity: string; title: string; message: string }>;
+  mode?: AppSection;
+  measurements: Measurements;
+  angleMode: AngleMode;
+  scheme: Scheme;
+  voltageType: VoltageType;
+  results: AnalysisResults;
+  diagnostics: DiagnosticItem[];
   diagramMode: string;
   diagramModeLabel: string;
   diagramNote?: string;
   trianglePhase?: string;
-  vafData?: {
-    objectName: string;
-    feeder?: string;
-    meterType?: string;
-    meterNumber?: string;
-    transformerTs?: string;
-    transformerTn?: string;
-    dateStr: string;
-    voltageLevel: string;
-    scheme: ConnectionScheme;
-    ctPhasePair?: CtPhasePair;
-    ratios: TransformerRatios;
-    Uabc: VafPhaseValues;
-    Iabc: VafPhaseValues;
-    phiDeg: VafPhaseValues;
-    K: number;
-    verdicts: AnalysisVerdict[];
-    power: VafPowerResults & { Ktotal: number };
-  };
+  vafData?: VafExportData;
   forCapture?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 /**
@@ -54,11 +37,11 @@ export function PdfExportDocument({
   scheme,
   voltageType,
   results,
-  diagnostics,
-  diagramMode,
-  diagramModeLabel,
-  diagramNote,
-  trianglePhase,
+  diagnostics: _diagnostics,
+  diagramMode: _diagramMode,
+  diagramModeLabel: _diagramModeLabel,
+  diagramNote: _diagramNote,
+  trianglePhase: _trianglePhase,
   vafData,
   forCapture = false,
   children,
@@ -66,7 +49,7 @@ export function PdfExportDocument({
   const cell = 'border border-slate-300 px-2 py-1.5 text-left';
   const th = `${cell} bg-slate-100 font-semibold text-xs text-slate-700`;
 
-  const basePaper: React.CSSProperties = {
+  const basePaper: CSSProperties = {
     width: '210mm',
     maxWidth: 'calc(100vw - 24px)',
     padding: '10mm 15mm',
@@ -76,7 +59,7 @@ export function PdfExportDocument({
     boxSizing: 'border-box',
   };
 
-  const hiddenStyle: React.CSSProperties = {
+  const hiddenStyle: CSSProperties = {
     ...basePaper,
     position: 'fixed',
     left: '-12000px',
@@ -87,7 +70,7 @@ export function PdfExportDocument({
     visibility: 'hidden',
   };
 
-  const capturePaperStyle: React.CSSProperties = {
+  const capturePaperStyle: CSSProperties = {
     ...basePaper,
     maxHeight: 'none',
     overflow: 'visible',
@@ -97,11 +80,12 @@ export function PdfExportDocument({
   const paperClassName = 'bg-white text-slate-900 pdf-export-document';
 
   const renderClassicBody = () => {
-    const schemeUa = scheme === 'star' ? 'Зірка (Y)' : 'Трикутник (Δ)';
+    const schemeUa =
+      scheme === 'star' ? 'Зірка (Y)' : scheme === 'aron' ? '2 ТС (Арон)' : 'Трикутник (Δ)';
     const vtUa = voltageType === 'line' ? 'Лінійна (Uл)' : 'Фазна (Uф)';
     const modeUa = angleMode === 'relative' ? 'Кути U та I (відносно)' : 'Кут φ (U–I)';
     const seqUa = results.sequence === 'Direct' ? 'Пряме (A-B-C)' : results.sequence === 'Reverse' ? 'Зворотне (A-C-B)' : 'Невизначено';
-    const phases = ['A', 'B', 'C'];
+    const phases: Array<'A' | 'B' | 'C'> = ['A', 'B', 'C'];
     const { phaseResults, total } = results;
 
     return (
@@ -135,9 +119,9 @@ export function PdfExportDocument({
               {phases.map((p) => (
                 <tr key={p}>
                   <td className={cell}>{p}</td>
-                  <td className={cell}>{measurements[p as 'A'|'B'|'C'].U}</td>
-                  <td className={cell}>{measurements[p as 'A'|'B'|'C'].I}</td>
-                  <td className={cell}>{angleMode === 'relative' ? `${measurements[p as 'A'|'B'|'C'].angleU}/${measurements[p as 'A'|'B'|'C'].angleI}` : measurements[p as 'A'|'B'|'C'].phi}</td>
+                  <td className={cell}>{measurements[p].U}</td>
+                  <td className={cell}>{measurements[p].I}</td>
+                  <td className={cell}>{angleMode === 'relative' ? `${measurements[p].angleU}/${measurements[p].angleI}` : measurements[p].phi}</td>
                   <td className={cell}>{phaseResults[p].cosPhi.toFixed(3)}</td>
                   <td className={cell}>{phaseResults[p].P.toFixed(1)}</td>
                   <td className={cell}>{phaseResults[p].Q.toFixed(1)}</td>
@@ -267,7 +251,7 @@ export function PdfExportDocument({
       </section>
 
       <footer className="mt-8 pt-4 border-t border-slate-200 text-[9px] text-slate-400 text-center">
-        Документ згенеровано автоматично VectorAnalyzer v3.2 • ech2corrosionrrd
+        Документ згенеровано автоматично • VectorAnalyzer 3Ph v1.4.0
       </footer>
     </div>
   );

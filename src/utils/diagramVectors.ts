@@ -5,22 +5,39 @@ import {
   formatAngleForLabel,
   lineVoltagesFromPhasePhasors,
   symmetricalVoltageComponents,
+  type ComplexPolar,
 } from './calculations';
 import { PHASE_COLORS } from './constants';
+import type {
+  AngleMode,
+  Scheme,
+  VoltageType,
+  Phase,
+  DiagramVectorItem,
+  Measurements,
+  AnalysisResults,
+} from '../types/vaf';
 
 const colors = PHASE_COLORS;
 
+interface DiagramContext {
+  measurements: Measurements;
+  angleMode: AngleMode;
+  scheme: Scheme;
+  voltageType: VoltageType;
+  results: AnalysisResults;
+}
+
 /**
- * @param {'combined'|'voltage'|'current'|'line'|'power'|'sequence'} kind
- * @param {{ measurements, angleMode, scheme, voltageType, results }} ctx
+ * Build diagram vectors for the given kind and context.
  */
-export function buildDiagramVectors(kind, ctx) {
+export function buildDiagramVectors(kind: string, ctx: DiagramContext): DiagramVectorItem[] {
   const { measurements, angleMode, scheme, voltageType, results } = ctx;
-  const v = [];
+  const v: DiagramVectorItem[] = [];
 
-  const phaseKeys = ['A', 'B', 'C'];
+  const phaseKeys: Phase[] = ['A', 'B', 'C'];
 
-  const pushVoltage = (p) => {
+  const pushVoltage = (p: Phase) => {
     const Uphase = toPhaseVoltage(measurements[p].U, voltageType, scheme);
     const angleU = measurements[p].angleU;
     const uKind = voltageType === 'line' ? 'Uл' : 'Uф';
@@ -36,7 +53,7 @@ export function buildDiagramVectors(kind, ctx) {
     });
   };
 
-  const pushCurrent = (p) => {
+  const pushCurrent = (p: Phase) => {
     const Uphase = toPhaseVoltage(measurements[p].U, voltageType, scheme);
     const currentScale =
       measurements[p].I > 0 ? (Uphase / measurements[p].I) * 0.5 : 40;
@@ -61,10 +78,7 @@ export function buildDiagramVectors(kind, ctx) {
   };
 
   if (kind === 'combined') {
-    phaseKeys.forEach((p) => {
-      pushVoltage(p);
-      pushCurrent(p);
-    });
+    phaseKeys.forEach((p) => { pushVoltage(p); pushCurrent(p); });
     return v;
   }
 
@@ -100,20 +114,11 @@ export function buildDiagramVectors(kind, ctx) {
   }
 
   if (kind === 'line') {
-    const uA = {
-      mag: toPhaseVoltage(measurements.A.U, voltageType, scheme),
-      deg: measurements.A.angleU,
-    };
-    const uB = {
-      mag: toPhaseVoltage(measurements.B.U, voltageType, scheme),
-      deg: measurements.B.angleU,
-    };
-    const uC = {
-      mag: toPhaseVoltage(measurements.C.U, voltageType, scheme),
-      deg: measurements.C.angleU,
-    };
+    const uA: ComplexPolar = { mag: toPhaseVoltage(measurements.A.U, voltageType, scheme), deg: measurements.A.angleU };
+    const uB: ComplexPolar = { mag: toPhaseVoltage(measurements.B.U, voltageType, scheme), deg: measurements.B.angleU };
+    const uC: ComplexPolar = { mag: toPhaseVoltage(measurements.C.U, voltageType, scheme), deg: measurements.C.angleU };
     const line = lineVoltagesFromPhasePhasors(uA, uB, uC);
-    const lineMeta = [
+    const lineMeta: Array<{ key: keyof typeof line; phase: Phase; label: string }> = [
       { key: 'AB', phase: 'A', label: 'U_AB' },
       { key: 'BC', phase: 'B', label: 'U_BC' },
       { key: 'CA', phase: 'C', label: 'U_CA' },
@@ -150,7 +155,6 @@ export function buildDiagramVectors(kind, ctx) {
       label: 'ΣP',
       caption: `${formatScalarForLabel(P / 1000)} кВт, ∠${P >= 0 ? 0 : 180}°`,
     });
-
     v.push({
       phase: 'Q',
       magnitude: qMag / maxPQ,
@@ -164,7 +168,6 @@ export function buildDiagramVectors(kind, ctx) {
           ? `${formatScalarForLabel(Q / 1000)} квар, 90° (ін.)`
           : `${formatScalarForLabel(Q / 1000)} квар, −90° (ємн.)`,
     });
-
     v.push({
       phase: 'S',
       magnitude: S / maxPQ,
@@ -175,26 +178,16 @@ export function buildDiagramVectors(kind, ctx) {
       label: 'ΣS',
       caption: `${formatScalarForLabel(S / 1000)} кВА, ∠${formatAngleForLabel(phiDeg)}°`,
     });
-
     return v;
   }
 
   if (kind === 'sequence') {
-    const uA = {
-      mag: toPhaseVoltage(measurements.A.U, voltageType, scheme),
-      deg: measurements.A.angleU,
-    };
-    const uB = {
-      mag: toPhaseVoltage(measurements.B.U, voltageType, scheme),
-      deg: measurements.B.angleU,
-    };
-    const uC = {
-      mag: toPhaseVoltage(measurements.C.U, voltageType, scheme),
-      deg: measurements.C.angleU,
-    };
+    const uA: ComplexPolar = { mag: toPhaseVoltage(measurements.A.U, voltageType, scheme), deg: measurements.A.angleU };
+    const uB: ComplexPolar = { mag: toPhaseVoltage(measurements.B.U, voltageType, scheme), deg: measurements.B.angleU };
+    const uC: ComplexPolar = { mag: toPhaseVoltage(measurements.C.U, voltageType, scheme), deg: measurements.C.angleU };
     const seq = symmetricalVoltageComponents(uA, uB, uC);
     const maxS = Math.max(seq.V0.mag, seq.V1.mag, seq.V2.mag, 1e-9);
-    const seqColors = { s0: '#94a3b8', s1: '#38bdf8', s2: '#e879f9' };
+    const seqColors: Record<string, string> = { s0: '#94a3b8', s1: '#38bdf8', s2: '#e879f9' };
     const rows = [
       { id: 's0', polar: seq.V0, label: 'V₀', name: 'нульова' },
       { id: 's1', polar: seq.V1, label: 'V₁', name: 'пряма' },
@@ -217,4 +210,3 @@ export function buildDiagramVectors(kind, ctx) {
 
   return v;
 }
-

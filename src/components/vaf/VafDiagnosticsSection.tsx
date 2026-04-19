@@ -1,6 +1,5 @@
-import React from 'react';
 import { ClipboardCopy } from 'lucide-react';
-import { AnalysisVerdict, VerdictCode } from '../types/vaf';
+import type { AnalysisVerdict, VerdictCode } from '../../types/vaf';
 
 interface VafDiagnosticsSectionProps {
   verdicts: AnalysisVerdict[];
@@ -15,14 +14,16 @@ const verdictStyles: Record<VerdictCode, string> = {
   WRONG_U: 'border-red-500/50 bg-red-950/30 text-red-200',
   PHASE_SWAP: 'border-amber-500/50 bg-amber-950/30 text-amber-200',
   ASYM: 'border-amber-500/50 bg-amber-950/30 text-amber-200',
+  MISSING_I: 'border-slate-500/50 bg-slate-800/30 text-slate-300',
+  HIGH_I0: 'border-rose-500/50 bg-rose-950/30 text-rose-200',
 };
 
-export const VafDiagnosticsSection: React.FC<VafDiagnosticsSectionProps> = ({
+export function VafDiagnosticsSection({
   verdicts,
   reportText,
   copyReport,
   copyHint,
-}) => {
+}: VafDiagnosticsSectionProps) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <h3 className="text-lg font-semibold mb-4 text-slate-100">Висновок аналізу</h3>
@@ -63,4 +64,4 @@ export const VafDiagnosticsSection: React.FC<VafDiagnosticsSectionProps> = ({
       </div>
     </div>
   );
-};
+}

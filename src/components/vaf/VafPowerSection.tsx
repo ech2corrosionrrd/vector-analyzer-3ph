@@ -1,6 +1,5 @@
-import React from 'react';
 import { Zap, Info } from 'lucide-react';
-import { VafPowerResults, VafPhaseValues, TransformerRatios } from '../types/vaf';
+import type { VafPowerResults, VafPhaseValues, TransformerRatios } from '../../types/vaf';
 
 interface VafPowerSectionProps {
   powerResults: VafPowerResults;
@@ -8,11 +7,11 @@ interface VafPowerSectionProps {
   ratios: TransformerRatios;
 }
 
-export const VafPowerSection: React.FC<VafPowerSectionProps> = ({ 
-  powerResults, 
-  Uabc, 
-  ratios 
-}) => {
+export function VafPowerSection({
+  powerResults,
+  Uabc,
+  ratios,
+}: VafPowerSectionProps) {
   const { totalPpri, totalQpri, totalSpri, totalPsec, totalQsec, avgCosPhi } = powerResults;
   const { UPrim, USec } = ratios;
 
@@ -78,4 +77,4 @@ export const VafPowerSection: React.FC<VafPowerSectionProps> = ({
       </div>
     </section>
   );
-};
+}

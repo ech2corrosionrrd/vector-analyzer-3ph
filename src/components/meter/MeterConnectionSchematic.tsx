@@ -1,5 +1,10 @@
-import { PHASE_COLORS } from '../utils/constants';
-import { Phase, ConnectionScheme, WireState, CtPhasePair, VerdictCode } from '../types/vaf';
+import { PHASE_COLORS } from '../../utils/constants';
+import type { Phase, ConnectionScheme, WireState, CtPhasePair, VerdictCode } from '../../types/vaf';
+import {
+  getVoltageLevelLabelUk,
+  getVoltageCircuitShortLabelUk,
+  voltageUsesVoltageTransformers,
+} from '../../utils/meterConnectionCatalog';
 
 const PHASE_COL = PHASE_COLORS;
 
@@ -158,10 +163,15 @@ export function MeterConnectionSchematic({
   const is3 = connectionScheme === '3_TS';
   const direct04 = voltageLevel === '0.4';
   const hl = wireHighlights;
+  const hasVt = voltageUsesVoltageTransformers(voltageLevel);
 
-  let vtLabel = `${voltageLevel} кВ`;
-  if (voltageLevel === '0.4') vtLabel = 'без ТН (пряме)';
-  else if (voltageLevel === '10' || voltageLevel === '6-10') vtLabel = '6–10 кВ';
+  const tsTnSummary = is3
+    ? hasVt
+      ? '3 ТС + 3 ТН'
+      : '3 ТС + пряме U'
+    : `${hasVt ? '2 ТС + 2 ТН' : '2 ТС + пряме U'} (${ctPhasePair.split('').join('-')})`;
+
+  const vtLabel = `${getVoltageLevelLabelUk(voltageLevel)} · ${getVoltageCircuitShortLabelUk(voltageLevel)}`;
 
   const meterTitle = 'Лічильник (умовні клеми 1–11)';
 
@@ -170,7 +180,7 @@ export function MeterConnectionSchematic({
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <h4 className="text-sm font-semibold text-slate-200">Схема підключення</h4>
         <span className="text-xs text-slate-500">
-          {is3 ? '3 ТС + 3 ТН' : `2 ТС (${ctPhasePair.split('').join('-')}) + 2 ТН`} · {vtLabel}
+          {tsTnSummary} · {vtLabel}
         </span>
       </div>
       {phaseSummary ? (
@@ -335,5 +345,3 @@ export function MeterConnectionSchematic({
     </div>
   );
 }
-
-export default MeterConnectionSchematic;
